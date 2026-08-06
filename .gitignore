@@ -1,0 +1,15 @@
+# Ignore all dotfiles/directories except this file
+.*
+!.gitignore
+
+# Host env files (keep *.env.example)
+*.env
+!*.env.example
+
+# Secrets / credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*
+*secret*

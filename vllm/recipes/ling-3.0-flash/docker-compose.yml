@@ -1,0 +1,50 @@
+services:
+  ling-3.0-flash:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ling-3.0-flash:local
+    container_name: ling-3.0-flash
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "8000:8000"
+    gpus: all
+    environment:
+      # Persist torch.compile + FlashInfer autotune across recreate/restarts.
+      # Fresh container: ~21 min (autotune). Later starts: ~5 min with warm cache.
+      - VLLM_CACHE_ROOT=/root/.cache/vllm
+      # Spark / GB10: if MoE kernels fail, try uncommenting:
+      # - VLLM_USE_FLASHINFER_MOE_FP4=0
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/vllm:/root/.cache/vllm
+    # Image entrypoint is `vllm serve`; pass model + flags only.
+    # Stop nemotron-puzzle (or anything on :8000) before starting.
+    command:
+      - inclusionAI/Ling-3.0-flash-fp4
+      - --served-model-name
+      - ling-3.0-flash
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.80"
+      - --max-model-len
+      - "131072"
+      - --max-num-seqs
+      - "4"
+      - --enable-prefix-caching
+      - --mamba-cache-mode
+      - align
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - ling3
+      - --reasoning-parser
+      - ling3
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'

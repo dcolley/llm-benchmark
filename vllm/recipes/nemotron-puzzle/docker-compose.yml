@@ -1,0 +1,58 @@
+services:
+  nemotron-puzzle:
+    image: vllm/vllm-openai@sha256:9fc353626ac2558f638c06f23e7e42f65f3b92bc949cbc04a1d38de9a7784b16
+    container_name: nemotron-puzzle
+    restart: unless-stopped
+    ipc: host
+    # network_mode: host
+    ports:
+      - "8000:8000"
+    gpus: all
+    environment:
+      # Persist torch compile + FlashInfer autotune across recreate/restarts.
+      - VLLM_CACHE_ROOT=/root/.cache/vllm
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/vllm:/root/.cache/vllm
+    # Image entrypoint is already `vllm serve`; pass model + flags only.
+    command:
+      - nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4
+      - --tensor-parallel-size
+      - "1"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --moe-backend
+      - flashinfer_cutlass
+      - --mamba-backend
+      - flashinfer
+      - --mamba_ssm_cache_dtype
+      - float16
+      - --enable-mamba-cache-stochastic-rounding
+      - --mamba-cache-philox-rounds
+      - "5"
+      - --kv-cache-dtype
+      - fp8
+      - --gpu-memory-utilization
+      - "0.75"
+      - --max-model-len
+      - "262144"
+      - --max-num-batched-tokens
+      - "16384"
+      - --max-num-seqs
+      - "8"
+      - --async-scheduling
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --enable-expert-parallel
+      - --reasoning-parser
+      - nemotron_v3
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": false}'
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-auto-tool-choice
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
