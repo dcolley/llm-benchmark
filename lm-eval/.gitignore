@@ -1,0 +1,18 @@
+# venv
+bin/
+lib/
+lib64/
+include/
+share/
+pyvenv.cfg
+CACHEDIR.TAG
+
+# caches / logs / bulky samples
+**/cache.db*
+**/__pycache__/
+results/**/samples_*.jsonl
+results/**/*.db
+results/**/resume.log
+results/**/watchdog.log
+results/**/watchdog-recover.log
+results/**/smoke/

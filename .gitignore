@@ -13,3 +13,18 @@
 *.pfx
 *credentials*
 *secret*
+
+# lm-eval venv + bulky results
+lm-eval/bin/
+lm-eval/lib/
+lm-eval/lib64/
+lm-eval/include/
+lm-eval/share/
+lm-eval/pyvenv.cfg
+lm-eval/CACHEDIR.TAG
+lm-eval/**/cache.db*
+lm-eval/**/__pycache__/
+lm-eval/results/**/samples_*.jsonl
+lm-eval/results/**/*.db
+lm-eval/results/**/resume.log
+lm-eval/results/**/watchdog.log
