@@ -78,10 +78,11 @@ This flag caps **total** vLLM memory (weights + KV), not “free for context.”
 | util | Approx budget on 128 GB | After FP4 weights |
 |---|---|---|
 | 0.70 | ~90 GB | ~15–20 GB KV |
-| **0.80 (default)** | ~102 GB | **~25–30 GB KV** |
+| **0.70 (default)** | ~90 GB | **~15–20 GB KV** |
+| 0.80 | ~102 GB | ~25–30 GB KV |
 | 0.85 | ~109 GB | ~35 GB KV |
 
-Defaults in this recipe: `util=0.80`, `max-model-len=131072`, `max-num-seqs=4`. For longer single-user context, raise util toward `0.85` or lower `max-num-seqs`. Drop MTP (`--speculative-config`) to free memory and speed cold start.
+Defaults in this recipe: `util=0.70`, `max-model-len=131072`, `max-num-seqs=4`. Raise util toward `0.80` only if the box has headroom after a stable boot. Drop MTP (`--speculative-config`) to free more memory and speed cold start.
 
 ### Spark / sm_121 notes
 

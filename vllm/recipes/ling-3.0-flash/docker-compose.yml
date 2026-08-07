@@ -33,7 +33,7 @@ services:
       - --tensor-parallel-size
       - "1"
       - --gpu-memory-utilization
-      - "0.80"
+      - "0.70"
       - --max-model-len
       - "131072"
       - --max-num-seqs

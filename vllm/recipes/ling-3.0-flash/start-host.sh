@@ -37,7 +37,7 @@ exec vllm serve "$MODEL" \
   --host 0.0.0.0 \
   --port "$PORT" \
   --tensor-parallel-size 1 \
-  --gpu-memory-utilization 0.80 \
+  --gpu-memory-utilization 0.70 \
   --max-model-len 131072 \
   --max-num-seqs 4 \
   --enable-prefix-caching \

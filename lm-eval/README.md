@@ -17,6 +17,23 @@ lm-eval --model hf \
   --limit 100
 ```
 
+## Ling-3.0-flash-int4 (local SGLang)
+
+Serve from [`../sglang/recipes/ling-3.0-flash-int4/`](../sglang/recipes/ling-3.0-flash-int4/) (thinking off for letter answers), then:
+
+```bash
+# smoke
+./scripts/run_mmlu_llama_ling_int4.sh --limit 5 --foreground
+
+# full (background) + watchdog
+./scripts/run_mmlu_llama_ling_int4.sh
+nohup ./scripts/mmlu_watchdog_ling_int4.sh >/dev/null 2>&1 &
+```
+
+Defaults: `BASE_URL=http://127.0.0.1:8000`, `MODEL_ID=ling-3.0-flash-int4`, output under `results/ling-3.0-flash-int4/`.
+
+Report: [`results/ling-3.0-flash-int4/MMLU_LLAMA_REPORT.md`](results/ling-3.0-flash-int4/MMLU_LLAMA_REPORT.md) — **83.61%** overall (2026-08-07).
+
 ## vLLM integration (API server pattern)
 
 vLLM cannot be pip-installed on aarch64. Use the NGC container instead:
