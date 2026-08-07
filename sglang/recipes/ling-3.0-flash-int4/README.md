@@ -69,11 +69,26 @@ Defaults:
 | `--chunked-prefill-size` | `8192` | Stable long prefill |
 | Thinking | **on** (model default) | Everyday chat / reasoning |
 | NEXTN / MTP | **on** (`--speculative-algorithm NEXTN`) | Built-in MTP draft (~3.5 GiB); lower latency |
+| Prefix cache | radix on + `--enable-cache-report` | `usage.prompt_tokens_details.cached_tokens` |
 | `restart` | `unless-stopped` | Stay up across reboots/SSH drops |
 
 Port **8000**. Stop other servers first.
 
 Pass `"chat_template_kwargs": {"enable_thinking": false}` per request when you need non-thinking answers (e.g. MMLU).
+
+### Prefix cache
+
+Radix (prefix) cache is **on by default** — do not pass `--disable-radix-cache`. `--enable-cache-report` exposes hits in OpenAI-compatible usage:
+
+```json
+"usage": {
+  "prompt_tokens": 96046,
+  "completion_tokens": 50,
+  "prompt_tokens_details": { "cached_tokens": 95040 }
+}
+```
+
+Keep system prompts / tool schemas byte-stable; put dynamic text after the stable prefix. Warm once, then measure the second identical-prefix call (first is a miss/write).
 
 ### Bring-up status (this Spark)
 

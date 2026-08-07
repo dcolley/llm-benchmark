@@ -46,4 +46,5 @@ exec python -m sglang.launch_server \
   --speculative-algorithm NEXTN \
   --tool-call-parser ling3 \
   --reasoning-parser ling3 \
+  --enable-cache-report \
   --served-model-name ling-3.0-flash-int4
