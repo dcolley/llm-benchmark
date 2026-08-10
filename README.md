@@ -17,6 +17,7 @@ Host and Docker launch recipes for DGX Spark live under [`vllm/recipes/`](vllm/r
 | Recipe | Notes |
 |--------|--------|
 | [`ling-3.0-flash/`](vllm/recipes/ling-3.0-flash/) | Ling-3.0-flash FP4 (Docker or host Ling fork; OOM’d on single Spark) |
+| [`meta-muse-glimmer-30b/`](vllm/recipes/meta-muse-glimmer-30b/) | Muse Glimmer-30B BF16 (host venv; Muse PR #51655 / GB10 sm_121) |
 | [`nemotron-puzzle/`](vllm/recipes/nemotron-puzzle/) | Nemotron Puzzle (Docker) |
 | [`qwen-agentworld/`](vllm/recipes/qwen-agentworld/) | Qwen-AgentWorld on 2× Spark (host venv) |
 | [`qwen3.6-27b-nvfp4/`](vllm/recipes/qwen3.6-27b-nvfp4/) | Qwen3.6-27B-NVFP4 (host venv) |
