@@ -1,0 +1,47 @@
+services:
+  nemotron-35-lightning:
+    image: vllm/vllm-openai:v0.27.1
+    container_name: nemotron-35-lightning
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "8000:8000"
+    gpus: all
+    environment:
+      - VLLM_CACHE_ROOT=/root/.cache/vllm
+      - CUTE_DSL_ARCH=sm_121a
+      - TORCH_CUDA_ARCH_LIST=12.1a
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/vllm:/root/.cache/vllm
+    command:
+      - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --moe-backend
+      - marlin
+      - --kv-cache-dtype
+      - fp8
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "8"
+      - --max-num-batched-tokens
+      - "16384"
+      - --gpu-memory-utilization
+      - "0.91"
+      - --enable-prefix-caching
+      - --mamba-backend
+      - flashinfer
+      - --mamba-cache-mode
+      - align
+      - --reasoning-parser
+      - nemotron_v3
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-auto-tool-choice
+      - --speculative-config
+      - '{"model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark", "num_speculative_tokens": 3}'

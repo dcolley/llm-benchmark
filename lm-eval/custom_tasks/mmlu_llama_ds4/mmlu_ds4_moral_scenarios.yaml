@@ -1,0 +1,5 @@
+dataset_name: moral_scenarios
+include: _continuation_template_yaml
+tag: mmlu_llama_ds4_humanities_tasks
+task: mmlu_llama_ds4_moral_scenarios
+task_alias: moral scenarios

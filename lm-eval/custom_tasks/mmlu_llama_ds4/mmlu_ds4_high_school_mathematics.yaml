@@ -1,0 +1,5 @@
+dataset_name: high_school_mathematics
+include: _continuation_template_yaml
+tag: mmlu_llama_ds4_stem_tasks
+task: mmlu_llama_ds4_high_school_mathematics
+task_alias: high school mathematics

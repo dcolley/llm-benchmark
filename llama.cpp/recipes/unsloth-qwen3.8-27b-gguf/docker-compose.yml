@@ -1,0 +1,41 @@
+# Optional compose form (production + HF pull). Prefer ./start-docker.sh which
+# handles local GGUF, PROFILE=long/ar, and MTP toggles.
+services:
+  qwen38-27b-gguf:
+    image: ${LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda13}
+    container_name: qwen38-27b-gguf
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "${PORT:-8000}:8000"
+    gpus: all
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${MODEL_DIR:-${HOME}/models/gguf/Qwen3.8-27B-GGUF}:/models:ro
+    entrypoint: ["/app/llama-server"]
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --alias
+      - ${ALIAS:-qwen3.8-27b-gguf}
+      - --hf-repo
+      - ${REPO:-unsloth/Qwen3.8-27B-GGUF}:${QUANT:-UD-Q8_K_XL}
+      - --ctx-size
+      - "${CTX_SIZE:-32768}"
+      - --n-gpu-layers
+      - "${NGL:-99}"
+      - --flash-attn
+      - "${FLASH_ATTN:-on}"
+      - --cache-type-k
+      - "${CACHE_TYPE_K:-q8_0}"
+      - --cache-type-v
+      - "${CACHE_TYPE_V:-q8_0}"
+      - --parallel
+      - "${PARALLEL:-4}"
+      - --jinja
+      - --spec-type
+      - ${SPEC_TYPE:-draft-mtp}

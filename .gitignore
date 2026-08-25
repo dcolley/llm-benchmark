@@ -28,3 +28,6 @@ lm-eval/results/**/samples_*.jsonl
 lm-eval/results/**/*.db
 lm-eval/results/**/resume.log
 lm-eval/results/**/watchdog.log
+lm-eval/results/**/serve.log
+lm-eval/results/**/agent_loop.log
+lm-eval/results/**/*.state

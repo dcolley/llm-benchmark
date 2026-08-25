@@ -1,0 +1,13 @@
+group: mmlu_llama_ds4
+task:
+  - mmlu_llama_ds4_stem
+  - mmlu_llama_ds4_other
+  - mmlu_llama_ds4_social_sciences
+  - mmlu_llama_ds4_humanities
+aggregate_metric_list:
+  - metric: exact_match
+    aggregation: mean
+    weight_by_size: True
+    filter_list: [strict_match]
+metadata:
+  version: 1

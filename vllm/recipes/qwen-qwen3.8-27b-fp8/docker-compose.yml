@@ -1,0 +1,51 @@
+services:
+  qwen38-27b-fp8:
+    image: vllm/vllm-openai:v0.27.1
+    container_name: qwen38-27b-fp8
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "8000:8000"
+    gpus: all
+    environment:
+      - VLLM_CACHE_ROOT=/root/.cache/vllm
+      - CUTE_DSL_ARCH=sm_121a
+      - TORCH_CUDA_ARCH_LIST=12.1a
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/vllm:/root/.cache/vllm
+    # Image entrypoint is already `vllm serve`; pass model + flags only.
+    command:
+      - Qwen/Qwen3.8-27B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --served-model-name
+      - qwen3.8-27b-fp8
+      - --kv-cache-dtype
+      - fp8
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "8"
+      - --max-num-batched-tokens
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --mamba-backend
+      - flashinfer
+      - --mamba-cache-mode
+      - align
+      - --mm-encoder-tp-mode
+      - data
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-auto-tool-choice
+      - --speculative-config
+      - '{"method": "mtp", "num_speculative_tokens": 3}'
