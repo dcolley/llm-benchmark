@@ -26,6 +26,7 @@ Host and Docker launch recipes for DGX Spark live under [`vllm/recipes/`](vllm/r
 | Recipe | Notes |
 |--------|--------|
 | [`ling-3.0-flash/`](vllm/recipes/ling-3.0-flash/) | Ling-3.0-flash FP4 (Docker or host Ling fork; OOM’d on single Spark) |
+| [`meta-muse-glimmer-30b/`](vllm/recipes/meta-muse-glimmer-30b/) | Muse Glimmer-30B BF16 (host venv; Muse PR #51655 / GB10 sm_121) |
 | [`nemotron-puzzle/`](vllm/recipes/nemotron-puzzle/) | Nemotron Puzzle (Docker) |
 | [`nemotron-3.5-lightning-30b-nvfp4/`](vllm/recipes/nemotron-3.5-lightning-30b-nvfp4/) | Nemotron 3.5 Lightning 30B-A3B NVFP4 + DSpark (host venv or Docker v0.27.1) |
 | [`ornith-1.5-35b-a3b-nvfp4/`](vllm/recipes/ornith-1.5-35b-a3b-nvfp4/) | Ornith-1.5-35B-A3B **NVFP4** (Docker preferred; FP8/BF16 via `MODEL=`) |
