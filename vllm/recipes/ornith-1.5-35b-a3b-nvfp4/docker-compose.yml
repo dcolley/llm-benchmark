@@ -1,0 +1,52 @@
+# Default: Ornith-1.5-35B-A3B-NVFP4 on DGX Spark (GB10).
+# Hardened for SM121: eager + no prefix cache (avoids CUDA illegal-address/instruction
+# crashes seen with hybrid Mamba + FULL_AND_PIECEWISE cudagraphs).
+services:
+  ornith-15-35b:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.27.1}
+    container_name: ornith-15-35b
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "${PORT:-8000}:8000"
+    gpus: all
+    environment:
+      - VLLM_CACHE_ROOT=/root/.cache/vllm
+      - CUTE_DSL_ARCH=sm_121a
+      - TORCH_CUDA_ARCH_LIST=12.1a
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/vllm:/root/.cache/vllm
+    # Image entrypoint is vllm serve; pass model + flags only.
+    command:
+      - ${MODEL:-ornith-ai/Ornith-1.5-35B-A3B-NVFP4}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --served-model-name
+      - ${SERVED_MODEL_NAME:-ornith-1.5-35b-a3b-nvfp4}
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "${MAX_MODEL_LEN:-262144}"
+      - --max-num-seqs
+      - "${MAX_NUM_SEQS:-2}"
+      - --max-num-batched-tokens
+      - "${MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --gpu-memory-utilization
+      - "${GPU_MEMORY_UTILIZATION:-0.85}"
+      - --kv-cache-dtype
+      - fp8
+      - --enforce-eager
+      - --no-enable-prefix-caching
+      - --enable-chunked-prefill
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": false}'

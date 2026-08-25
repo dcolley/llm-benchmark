@@ -1,0 +1,49 @@
+# Default: production MTP K=3 on DGX Spark (GB10 / SM121).
+# Long context: PROFILE=long ./start-docker.sh  (uses docker-compose.long.yml)
+# AR floor:     PROFILE=ar ./start-docker.sh    (uses docker-compose.ar.yml)
+services:
+  qwen38-27b-nvfp4-mtp:
+    image: ${VLLM_IMAGE:-ghcr.io/r0b0tlab/qwen38-27b-nvfp4-sm121:v0.27.2rc0-sm121}
+    container_name: qwen38-27b-nvfp4-mtp
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "${PORT:-8000}:8000"
+    gpus: all
+    environment:
+      - VLLM_CACHE_ROOT=/root/.cache/vllm
+      - CUTE_DSL_ARCH=sm_121a
+      - TORCH_CUDA_ARCH_LIST=12.1a
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      - ${HOME}/.cache/vllm:/root/.cache/vllm
+    # Image entrypoint is vllm serve; pass flags only.
+    # CRITICAL: --kv-cache-dtype fp8 must stay (checkpoint ships kv_cache_quant_algo: FP8).
+    command:
+      - --model
+      - ${MODEL:-r0b0tlab/Qwen3.8-27B-NVFP4-MTP-sm121}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --served-model-name
+      - ${SERVED_MODEL_NAME:-qwen3.8-27b-nvfp4-mtp}
+      - --kv-cache-dtype
+      - fp8
+      - --max-model-len
+      - "${MAX_MODEL_LEN:-32768}"
+      - --max-num-seqs
+      - "${MAX_NUM_SEQS:-8}"
+      - --max-num-batched-tokens
+      - "${MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --gpu-memory-utilization
+      - "${GPU_MEMORY_UTILIZATION:-0.70}"
+      - --enforce-eager
+      - --no-enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
