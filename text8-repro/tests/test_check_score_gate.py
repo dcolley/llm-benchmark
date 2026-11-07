@@ -20,7 +20,7 @@ from check_score_gate import (  # noqa: E402
     PUBLISHED_CLAIMS,
     evaluate_gate,
 )
-from export_artifacts import export, resolve_inside  # noqa: E402
+from export_artifacts import export, prepare_fresh_dest, resolve_inside  # noqa: E402
 
 
 def _ckpt(name: str, **overrides) -> dict:
@@ -177,6 +177,24 @@ def test_full_metrics_complete_and_tokens():
     payload = valid_payload()
     payload["checkpoints"][0]["full_val"]["n_tokens"] = 12
     assert_fail(payload, "n_tokens", "4999999")
+    payload = valid_payload()
+    payload["checkpoints"][0]["full_val"]["n_tokens"] = True
+    assert_fail(payload, "n_tokens")
+    payload = valid_payload()
+    payload["checkpoints"][0]["full_val"]["n_tokens"] = float(EXPECTED_FULL_TOKENS["val"])
+    assert_fail(payload, "n_tokens", "integer")
+
+
+def test_n_tokens_rejects_bool_and_float():
+    payload = valid_payload()
+    payload["checkpoints"][2]["full_test"]["n_tokens"] = False
+    assert_fail(payload, "n_tokens")
+
+
+def test_negative_max_abs():
+    payload = valid_payload()
+    payload["checkpoints"][0]["cpu_gpu_parity"]["max_abs_diff"] = -1e-6
+    assert_fail(payload, "negative")
 
 
 def test_hardcoded_claim():
@@ -278,48 +296,92 @@ def test_parity_ignores_warn_flag():
     assert result["status"] == "pass", result
 
 
-def test_export_allowlist_and_model_paths(tmp_path: Path | None = None):
-    base = tmp_path or Path("/tmp/gate-tf32-export-test")
-    src = base / "results"
-    dest = base / "artifacts"
-    if src.exists():
-        import shutil
-        shutil.rmtree(base)
-    src.mkdir(parents=True)
-    (src / "transformer").mkdir()
-    (src / "ssm").mkdir()
-    for name in ("scores.json", "device_report.json", "provenance.md", "gate.json", "gate.txt"):
-        (src / name).write_text("{}\n" if name.endswith(".json") else "ok\n", encoding="utf-8")
-    (src / "transformer" / "progress.json").write_text("{}\n", encoding="utf-8")
-    (src / "transformer" / "wrapper_timing.json").write_text("{}\n", encoding="utf-8")
-    (src / "ssm" / "progress.json").write_text("{}\n", encoding="utf-8")
-    (src / "ssm" / "wrapper_timing.json").write_text("{}\n", encoding="utf-8")
-    copied = export(src, dest)
-    assert "scores.json" in copied
-    assert "transformer/progress.json" in copied
-    assert "ssm/wrapper_timing.json" in copied
-
-
-def test_export_refuses_symlink_and_escape(tmp_path: Path | None = None):
+def _write_export_fixtures(base: Path):
     import shutil
-    base = tmp_path or Path("/tmp/gate-tf32-export-refuse")
     if base.exists():
         shutil.rmtree(base)
     src = base / "results"
+    runs = base / "runs"
     src.mkdir(parents=True)
-    outside = base / "secret.json"
+    (runs / "transformer").mkdir(parents=True)
+    (runs / "ssm").mkdir(parents=True)
+    for name in ("scores.json", "device_report.json", "provenance.md", "gate.json", "gate.txt"):
+        (src / name).write_text("{0}\n".format("{}" if name.endswith(".json") else "ok"), encoding="utf-8")
+    for model in ("transformer", "ssm"):
+        (runs / model / "progress.json").write_text("{}\n", encoding="utf-8")
+        (runs / model / "wrapper_timing.json").write_text("{}\n", encoding="utf-8")
+    return src, runs
+
+
+def test_export_happy_path():
+    src, runs = _write_export_fixtures(Path("/tmp/gate-export-happy"))
+    dest = Path("/tmp/gate-export-happy/reviewed")
+    copied = export(src, dest, runs)
+    assert "scores.json" in copied
+    assert "runs/transformer/progress.json" in copied
+    assert "runs/ssm/wrapper_timing.json" in copied
+    assert (dest / "runs" / "ssm" / "wrapper_timing.json").is_file()
+
+
+def test_export_missing_progress():
+    src, runs = _write_export_fixtures(Path("/tmp/gate-export-missing"))
+    (runs / "transformer" / "progress.json").unlink()
+    dest = Path("/tmp/gate-export-missing/reviewed")
+    try:
+        export(src, dest, runs)
+        raise AssertionError("missing progress should have failed")
+    except SystemExit as exc:
+        assert "missing required" in str(exc).lower()
+        assert "transformer/progress.json" in str(exc)
+
+
+def test_export_path_escape():
+    src, runs = _write_export_fixtures(Path("/tmp/gate-export-escape"))
+    try:
+        resolve_inside(runs, "../results/scores.json", required=True, label="runs")
+        raise AssertionError("escape should have been refused")
+    except SystemExit as exc:
+        assert "outside" in str(exc).lower() or "unsafe" in str(exc).lower()
+
+
+def test_export_symlink_dest():
+    import shutil
+    src, runs = _write_export_fixtures(Path("/tmp/gate-export-symdest"))
+    target = Path("/tmp/gate-export-symdest/target")
+    dest = Path("/tmp/gate-export-symdest/reviewed")
+    target.mkdir()
+    dest.symlink_to(target)
+    try:
+        export(src, dest, runs)
+        raise AssertionError("symlink dest should have been refused")
+    except SystemExit as exc:
+        assert "symlink" in str(exc).lower()
+
+
+def test_export_stale_dest():
+    src, runs = _write_export_fixtures(Path("/tmp/gate-export-stale"))
+    dest = Path("/tmp/gate-export-stale/reviewed")
+    dest.mkdir()
+    (dest / "old.txt").write_text("stale\n", encoding="utf-8")
+    try:
+        export(src, dest, runs)
+        raise AssertionError("stale dest should have been refused")
+    except SystemExit as exc:
+        assert "non-empty" in str(exc).lower()
+
+
+def test_export_refuses_symlink_and_escape():
+    src, _runs = _write_export_fixtures(Path("/tmp/gate-export-refuse"))
+    outside = Path("/tmp/gate-export-refuse/secret.json")
     outside.write_text("nope\n", encoding="utf-8")
-    (src / "scores.json").symlink_to(outside)
+    scores = src / "scores.json"
+    scores.unlink()
+    scores.symlink_to(outside)
     try:
         resolve_inside(src, "scores.json")
         raise AssertionError("symlink should have been refused")
     except SystemExit as exc:
         assert "symlink" in str(exc).lower()
-    try:
-        resolve_inside(src, "../secret.json")
-        raise AssertionError("escape should have been refused")
-    except SystemExit as exc:
-        assert "outside" in str(exc).lower() or "unsafe" in str(exc).lower()
 
 
 def main() -> int:
@@ -347,7 +409,13 @@ def main() -> int:
         test_parity_boundary_hold,
         test_parity_nan,
         test_parity_ignores_warn_flag,
-        test_export_allowlist_and_model_paths,
+        test_n_tokens_rejects_bool_and_float,
+        test_negative_max_abs,
+        test_export_happy_path,
+        test_export_missing_progress,
+        test_export_path_escape,
+        test_export_symlink_dest,
+        test_export_stale_dest,
         test_export_refuses_symlink_and_escape,
     ]
     failed = 0

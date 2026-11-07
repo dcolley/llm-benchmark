@@ -172,7 +172,7 @@ variables:
 ./scripts/provenance_diff.sh
 python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" --device cuda --seed 1
 python scripts/check_score_gate.py "$RESULTS_DIR/scores.json"
-python scripts/export_artifacts.py --src "$RESULTS_DIR" --dest artifacts
+python scripts/export_artifacts.py --src "$RESULTS_DIR" --runs-src "$RUNS_DIR" --dest artifacts/reviewed
 # only after the gate passes:
 python train_transformer.py --out-dir "$RUNS_DIR/transformer" --seed 1 --data "$TEXT8_PATH" --hf-dir "$HF_DIR"
 python train_ssm.py --out-dir "$RUNS_DIR/ssm" --seed 1 --data "$TEXT8_PATH" --hf-dir "$HF_DIR"
@@ -186,7 +186,8 @@ docker compose --profile fetch run --rm fetch
 ./scripts/provenance_diff.sh   # not a compose service; needs network and UPSTREAM_DIR
 docker compose up --build score
 python scripts/check_score_gate.py /absolute/path/to/results/scores.json
-python scripts/export_artifacts.py --src /absolute/path/to/results --dest artifacts
+python scripts/export_artifacts.py --src /absolute/path/to/results --runs-src /absolute/path/to/runs --dest artifacts/reviewed
+# dest must not already exist as a non-empty directory or symlink
 # only after the gate passes:
 docker compose --profile train run --rm train-transformer
 docker compose --profile train run --rm train-ssm

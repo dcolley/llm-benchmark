@@ -5,7 +5,7 @@ This folder is the only place generated scoring outputs should be committed.
 Copy them with:
 
 ```
-python scripts/export_artifacts.py --src results --dest artifacts
+python scripts/export_artifacts.py --src "$RESULTS_DIR" --runs-src "$RUNS_DIR" --dest artifacts/reviewed
 ```
 
 Allowlist (nothing else is copied):

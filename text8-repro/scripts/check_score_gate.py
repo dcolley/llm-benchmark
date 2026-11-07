@@ -13,7 +13,7 @@ max_abs (payload warn flags are ignored):
   max_abs <= 1e-4                 PASS
   1e-4 < max_abs <= 1e-3          HOLD (exit 3)
   max_abs > 1e-3                  FAIL
-  missing or non-finite max_abs   FAIL
+  missing, non-finite, or negative max_abs   FAIL
 """
 from __future__ import annotations
 
@@ -98,6 +98,13 @@ def is_finite_number(value) -> bool:
     return math.isfinite(number)
 
 
+def is_exact_int(value) -> bool:
+    """True only for real integers. bool is a subclass of int and is rejected."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    return True
+
+
 def _tf32_block(payload: dict):
     """Return the tf32 object written by score.py, or None if absent.
 
@@ -165,7 +172,7 @@ def check_tf32(payload: dict) -> list[str]:
 
 def parity_band(max_abs) -> str:
     """Return pass, hold, or fail from max_abs. Does not trust payload flags."""
-    if not is_finite_number(max_abs):
+    if not is_finite_number(max_abs) or float(max_abs) < 0:
         return "fail"
     value = float(max_abs)
     if value <= PARITY_PASS_MAX:
@@ -312,9 +319,9 @@ def evaluate_gate(payload: dict, threshold: float = BPC_TOLERANCE) -> dict:
                 errors.append(f"{name}: full_{split}.complete must be true")
             tokens = info.get("n_tokens")
             expected_tokens = EXPECTED_FULL_TOKENS[split]
-            if not is_finite_number(tokens) or int(tokens) != expected_tokens:
+            if not is_exact_int(tokens) or tokens != expected_tokens:
                 errors.append(
-                    f"{name}: full_{split} n_tokens is {tokens!r}, expected {expected_tokens}"
+                    f"{name}: full_{split} n_tokens is {tokens!r}, expected integer {expected_tokens}"
                 )
             bpc = row.get(f"full_{split}_bpc")
             if not is_finite_number(bpc):
@@ -340,6 +347,8 @@ def evaluate_gate(payload: dict, threshold: float = BPC_TOLERANCE) -> dict:
             if band == "fail":
                 if not is_finite_number(max_abs):
                     errors.append(f"{name}: cpu_gpu_parity.max_abs_diff is missing or non-finite")
+                elif float(max_abs) < 0:
+                    errors.append(f"{name}: cpu_gpu_parity.max_abs_diff {max_abs} is negative")
                 else:
                     errors.append(
                         f"{name}: cpu_gpu_parity.max_abs_diff {max_abs} > {PARITY_HOLD_MAX} (FAIL band)"
