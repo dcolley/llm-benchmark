@@ -19,6 +19,10 @@ load_env_file() {
       value="${value%\"}"
       value="${value#\'}"
       value="${value%\'}"
+      if [[ "$key" == "UID" || "$key" == "GID" ]]; then
+        echo "error: $f sets $key=...; rename to HOST_UID and HOST_GID (bash UID is readonly, so loading UID= from .env fails)" >&2
+        return 1
+      fi
       printf -v "$key" '%s' "$value"
       export "$key"
     fi

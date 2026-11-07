@@ -94,7 +94,7 @@ Do not put hostnames or IP addresses in either file.
 | `TEXT8_URL`, `TEXT8_EXPECTED_SHA256` | Corpus fetch and check |
 | `UPSTREAM_REPO`, `UPSTREAM_COMMIT` | Provenance diff pin |
 | `UPSTREAM_DIR` | Persistent writable checkout of upstream PhaseMesh used by `provenance_diff.sh` |
-| `UID`, `GID` | Host user/group that should own container-written outputs (`user: ${UID}:${GID}`) |
+| `HOST_UID`, `HOST_GID` | Host user/group that should own container-written outputs (`user: ${HOST_UID}:${HOST_GID}`). Named this way because bash `UID` is readonly; a `.env` that sets `UID=` fails when `scripts/common.sh` loads it. |
 
 ## Scoring gate before any training
 
@@ -182,7 +182,7 @@ python scripts/export_artifacts.py --stage complete --src "$RESULTS_DIR" --runs-
 Compose (draft runtime):
 
 ```
-cp .env.example .env   # then edit host paths, UID/GID, and UPSTREAM_DIR
+cp .env.example .env   # then edit host paths, HOST_UID/HOST_GID, and UPSTREAM_DIR
 docker compose --profile fetch run --rm fetch
 ./scripts/provenance_diff.sh   # not a compose service; needs network and UPSTREAM_DIR
 docker compose up --build score
@@ -200,7 +200,7 @@ python scripts/export_artifacts.py --stage complete --src /absolute/path/to/resu
 `UPSTREAM_DIR` at a persistent, writable checkout (created on first run). Do
 not use a throwaway path if you want to reuse the clone.
 
-Compose services run as `user: ${UID}:${GID}` from `.env`, so files written
+Compose services run as `user: ${HOST_UID}:${HOST_GID}` from `.env`, so files written
 into `results/`, `runs/`, and `cache/` are owned by that host user rather
 than root. Fetch has no GPU reservation. Score and train each request one GPU.
 

@@ -16,7 +16,7 @@
 #
 # One GPU per score/train service (count: 1). Fetch has no GPU reservation.
 # Select which host GPU with NVIDIA_VISIBLE_DEVICES in .env.
-# Outputs are owned by user: ${UID}:${GID} from .env.
+# Outputs are owned by user: ${HOST_UID}:${HOST_GID} from .env.
 
 x-env: &env
   HF_DIR: /data/hf
@@ -39,7 +39,7 @@ x-common: &common
     dockerfile: Dockerfile
   image: ${IMAGE_NAME:-text8-repro:phasemesh}
   working_dir: /work
-  user: "${UID:-1000}:${GID:-1000}"
+  user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
   env_file:
     - .env
   environment:
