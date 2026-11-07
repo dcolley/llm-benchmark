@@ -10,7 +10,7 @@ RUN apt-get update \
     && grep -vE '^#|^$' /tmp/apt-packages.txt > /tmp/apt-packages.pins \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         $(cat /tmp/apt-packages.pins) \
-    && dpkg-query -W -f='${Package}=${Version}\n' ca-certificates curl git unzip \
+    && dpkg-query -W -f='${Package}=${Version}\n' ca-certificates curl libcurl4t64 git unzip \
         | tee /opt/text8-repro-apt-versions.txt \
     && rm -rf /var/lib/apt/lists/*
 

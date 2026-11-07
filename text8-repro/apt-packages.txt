@@ -1,8 +1,10 @@
 # Ubuntu 24.04 (noble) pins for NGC PyTorch 26.07, arm64 / GB10.
-# Recorded from packages.ubuntu.com (noble) on 2026-11-07.
+# Recorded from packages.ubuntu.com noble-updates (and the amd64 Packages
+# indexes for noble-updates/security) on 2026-11-07.
 # If `apt-get install` cannot find a version, refresh this file from the
-# image with: dpkg-query -W ca-certificates curl git unzip
+# image with: dpkg-query -W ca-certificates curl libcurl4t64 git unzip
 ca-certificates=20260816ubuntu0.24.04.2
-curl=8.5.0-2ubuntu10
-git=1:2.43.0-1ubuntu7
-unzip=6.0-28ubuntu4
+curl=8.5.0-2ubuntu10.16
+libcurl4t64=8.5.0-2ubuntu10.16
+git=1:2.43.0-1ubuntu7.4
+unzip=6.0-28ubuntu4.1
