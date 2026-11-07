@@ -2,41 +2,49 @@
 # Host paths come from the gitignored .env file.
 #
 # Default (`docker compose up`) starts only the scoring service.
-# Do not start training until `python scripts/check_score_gate.py` passes
-# (reproduced sampled val bpc within 0.01 of each claim).
+# Do not start training until `python scripts/check_score_gate.py` passes.
 #
 #   docker compose --profile fetch run --rm fetch
+#   ./scripts/provenance_diff.sh    # uses UPSTREAM_DIR from .env; needs network
 #   docker compose up --build score
 #   python scripts/check_score_gate.py ${RESULTS_DIR}/scores.json
+#   python scripts/export_artifacts.py --src ${RESULTS_DIR} --dest artifacts
+#   # only after the gate passes:
 #   docker compose --profile train run --rm train-transformer
 #   docker compose --profile train run --rm train-ssm
 #
-# One GPU per service (count: 1). Select which host GPU with
-# NVIDIA_VISIBLE_DEVICES in .env. The same image is used on both machines.
+# One GPU per score/train service (count: 1). Fetch has no GPU reservation.
+# Select which host GPU with NVIDIA_VISIBLE_DEVICES in .env.
+# Outputs are owned by user: ${UID}:${GID} from .env.
 
-x-app: &app
+x-env: &env
+  HF_DIR: /data/hf
+  TEXT8_DIR: /data/corpus
+  TEXT8_PATH: /data/corpus/text8
+  RESULTS_DIR: /work/results
+  DEVICE: ${DEVICE:-cuda}
+  SEED: ${SEED:-1}
+  MICROBATCH: ${MICROBATCH:-4}
+  WALL_SECONDS: ${WALL_SECONDS:-259200}
+  NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
+  TORCH_HOME: /work/cache/torch
+  XDG_CACHE_HOME: /work/cache
+  TRITON_CACHE_DIR: /work/cache/triton
+  HF_HOME: /work/cache/hf
+
+x-common: &common
   build:
     context: .
     dockerfile: Dockerfile
   image: ${IMAGE_NAME:-text8-repro:phasemesh}
   working_dir: /work
+  user: "${UID:-1000}:${GID:-1000}"
   env_file:
     - .env
   environment:
-    HF_DIR: /data/hf
-    TEXT8_DIR: /data/corpus
-    TEXT8_PATH: /data/corpus/text8
-    RESULTS_DIR: /work/results
-    DEVICE: ${DEVICE:-cuda}
-    SEED: ${SEED:-1}
-    MICROBATCH: ${MICROBATCH:-4}
-    WALL_SECONDS: ${WALL_SECONDS:-259200}
-    NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
-    TORCH_HOME: /work/cache/torch
-    XDG_CACHE_HOME: /work/cache
-    TRITON_CACHE_DIR: /work/cache/triton
-    HF_HOME: /work/cache/hf
-  # Single GPU; no tensor parallelism.
+    <<: *env
+
+x-gpu: &gpu
   deploy:
     resources:
       reservations:
@@ -47,8 +55,12 @@ x-app: &app
 
 services:
   score:
-    <<: *app
+    <<: [*common, *gpu]
     network_mode: "none"
+    environment:
+      <<: *env
+      TORCH_ALLOW_TF32_CUBLAS_OVERRIDE: "0"
+      NVIDIA_TF32_OVERRIDE: "0"
     volumes:
       - ${HF_DIR}:/data/hf:ro
       - ${TEXT8_DIR}:/data/corpus:ro
@@ -69,7 +81,7 @@ services:
       - ${SEED:-1}
 
   train-transformer:
-    <<: *app
+    <<: [*common, *gpu]
     profiles: ["train"]
     network_mode: "none"
     volumes:
@@ -95,7 +107,7 @@ services:
       - ${WALL_SECONDS:-259200}
 
   train-ssm:
-    <<: *app
+    <<: [*common, *gpu]
     profiles: ["train"]
     network_mode: "none"
     volumes:
@@ -121,13 +133,10 @@ services:
       - ${WALL_SECONDS:-259200}
 
   fetch:
-    <<: *app
+    <<: *common
     profiles: ["fetch"]
     environment:
-      HF_DIR: /data/hf
-      TEXT8_DIR: /data/corpus
-      TEXT8_PATH: /data/corpus/text8
-      RESULTS_DIR: /work/results
+      <<: *env
       HF_REPO: ${HF_REPO:-MarxistLeninist/phasemesh-text8-comparison}
       HF_REVISION: ${HF_REVISION:-2eb1bef95b39e9745035044679f9d18b8ac3513a}
       HF_BASE_URL: ${HF_BASE_URL:-https://huggingface.co}

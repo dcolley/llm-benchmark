@@ -110,7 +110,7 @@ def launch(kind: str, rel_runner: str, rel_config: str, extra_flags_from_cfg) ->
     args.out_dir.mkdir(parents=True, exist_ok=True)
     cmd = runner_command(runner=runner, cfg=cfg, args=args, extra_flags=extra_flags)
     from device_check import log_device_report
-    device_report = log_device_report(args.device)
+    device_report = log_device_report(args.device, tf32_policy="record_only")
     print(json.dumps({"event": "launch", "kind": kind, "command": cmd, "seed": args.seed,
                       "out_dir": str(args.out_dir), "device_report": device_report}, indent=2), flush=True)
 
@@ -139,10 +139,14 @@ def launch(kind: str, rel_runner: str, rel_config: str, extra_flags_from_cfg) ->
         "wall_seconds": wall_seconds,
         "optimizer_only_seconds": optimizer_only,
         "progress_present": progress is not None,
+        "device_report": device_report,
+        "tf32": device_report.get("tf32"),
         "note": (
             "wall_seconds is measured by this wrapper around the published runner. "
             "optimizer_only_seconds is trained_seconds from the runner progress.json, "
-            "which excludes evaluation, saving, and pauses."
+            "which excludes evaluation, saving, and pauses. "
+            "TF32 env/flags are recorded only; this wrapper and the published "
+            "run_matched.py / run_ssm.py / train_core.py do not set them."
         ),
     }
     timing_path = args.out_dir / "wrapper_timing.json"

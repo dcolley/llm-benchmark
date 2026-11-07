@@ -4,12 +4,14 @@ FROM nvcr.io/nvidia/pytorch@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb6
 
 WORKDIR /work
 
+# Apt versions are pinned in apt-packages.txt and recorded again after install.
+COPY apt-packages.txt /tmp/apt-packages.txt
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        git \
-        unzip \
+    && grep -vE '^#|^$' /tmp/apt-packages.txt > /tmp/apt-packages.pins \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        $(cat /tmp/apt-packages.pins) \
+    && dpkg-query -W -f='${Package}=${Version}\n' ca-certificates curl git unzip \
+        | tee /opt/text8-repro-apt-versions.txt \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt

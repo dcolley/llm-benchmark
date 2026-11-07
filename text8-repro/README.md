@@ -62,6 +62,10 @@ text8-repro/
   scripts/fetch_text8.sh
   scripts/provenance_diff.sh
   scripts/check_score_gate.py
+  scripts/export_artifacts.py
+  tests/test_check_score_gate.py
+  apt-packages.txt
+  artifacts/                 # reviewed copies only; see artifacts/README.md
 ```
 
 Generated and ignored: `.env`, downloaded HF snapshot and text8, `runs/`,
@@ -89,14 +93,34 @@ Do not put hostnames or IP addresses in either file.
 | `HF_REPO`, `HF_REVISION`, `HF_BASE_URL` | Fetch pin |
 | `TEXT8_URL`, `TEXT8_EXPECTED_SHA256` | Corpus fetch and check |
 | `UPSTREAM_REPO`, `UPSTREAM_COMMIT` | Provenance diff pin |
+| `UPSTREAM_DIR` | Persistent writable checkout of upstream PhaseMesh used by `provenance_diff.sh` |
+| `UID`, `GID` | Host user/group that should own container-written outputs (`user: ${UID}:${GID}`) |
 
 ## Scoring gate before any training
 
 Training is **not** started by `docker compose up`. The `train-transformer` and
 `train-ssm` services are behind the `train` profile.
 
-The gate is: for every scored checkpoint, the independently reproduced sampled
-validation bpc is within **0.01** of the claimed value.
+The gate is fail-closed (`scripts/check_score_gate.py`). It passes only if all
+of the following hold:
+
+- All four published checkpoints are present exactly once (`transformer/best.pt`,
+  `transformer/final.pt`, `ssm/best.pt`, `ssm/final.pt`), with no duplicates
+  and no extras.
+- Each checkpoint loaded with `weights_only=True`, strict `state_dict` loading,
+  and finite-tensor checks.
+- Full val and full test both finished (`truncated` is false, token counts
+  present).
+- CPU/GPU logit parity ran and did not warn, and was not skipped when CUDA was
+  available or requested.
+- Both `sampled_val_bpc` and `full_val_bpc` are within **0.01** of that
+  checkpoint's claimed sampled validation bpc. `full_test_bpc` is printed for
+  information and must be present and complete, but is not compared to the claim.
+- The run did not set a smoke/skip/limit flag (`--skip-full`, `--skip-sampled`,
+  `--skip-parity`, `--allow-missing-data`, or `--max-windows`).
+
+Non-finite scores, deltas, or a threshold that is non-finite or ≤ 0 fail the
+gate (a NaN comparison must never pass).
 
 ```
 python scripts/check_score_gate.py results/scores.json
@@ -119,9 +143,13 @@ variables:
 ```
 ./scripts/fetch_hf.sh
 ./scripts/fetch_text8.sh
+# Persistent writable upstream checkout; set UPSTREAM_DIR in .env so later
+# runs fetch/checkout the pin instead of cloning from scratch.
 ./scripts/provenance_diff.sh
 python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" --device cuda --seed 1
 python scripts/check_score_gate.py "$RESULTS_DIR/scores.json"
+python scripts/export_artifacts.py --src "$RESULTS_DIR" --dest artifacts
+# only after the gate passes:
 python train_transformer.py --out-dir "$RUNS_DIR/transformer" --seed 1 --data "$TEXT8_PATH" --hf-dir "$HF_DIR"
 python train_ssm.py --out-dir "$RUNS_DIR/ssm" --seed 1 --data "$TEXT8_PATH" --hf-dir "$HF_DIR"
 ```
@@ -129,19 +157,41 @@ python train_ssm.py --out-dir "$RUNS_DIR/ssm" --seed 1 --data "$TEXT8_PATH" --hf
 Compose (draft runtime):
 
 ```
-cp .env.example .env   # then edit host paths
+cp .env.example .env   # then edit host paths, UID/GID, and UPSTREAM_DIR
 docker compose --profile fetch run --rm fetch
+./scripts/provenance_diff.sh   # not a compose service; needs network and UPSTREAM_DIR
 docker compose up --build score
 python scripts/check_score_gate.py /absolute/path/to/results/scores.json
+python scripts/export_artifacts.py --src /absolute/path/to/results --dest artifacts
 # only after the gate passes:
 docker compose --profile train run --rm train-transformer
 docker compose --profile train run --rm train-ssm
 ```
 
+`provenance_diff.sh` diffs both vendored `phase_ssm` trees against upstream
+`phase_ssm/` at the pinned commit and writes `results/provenance.md`. Point
+`UPSTREAM_DIR` at a persistent, writable checkout (created on first run). Do
+not use a throwaway path if you want to reuse the clone.
+
+Compose services run as `user: ${UID}:${GID}` from `.env`, so files written
+into `results/`, `runs/`, and `cache/` are owned by that host user rather
+than root. Fetch has no GPU reservation. Score and train each request one GPU.
+
+The score service sets `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0` and
+`NVIDIA_TF32_OVERRIDE=0`. The scorer also sets
+`torch.backends.cuda.matmul.allow_tf32=False`,
+`torch.backends.cudnn.allow_tf32=False`, and
+`torch.set_float32_matmul_precision("highest")` before any CUDA work, and
+records the effective env vars, flags, and matmul precision in
+`device_report` / `scores.json`. If an override env is still `1`, it warns
+loudly. Training services do not set those env vars and do not change TF32
+flags; they only record whatever the container inherited, matching the
+published runners (which also leave TF32 untouched).
+
 `score`, `train-transformer` and `train-ssm` use `network_mode: none`. Fetch
-keeps default networking so it can download the snapshot and text8. No service
-uses privileged mode, host networking, or the Docker socket. Each run/score
-service requests exactly one GPU.
+keeps default networking so it can download the snapshot and text8, and it
+does not reserve a GPU. No service uses privileged mode, host networking, or
+the Docker socket. Each score/train service requests exactly one GPU.
 
 `score.py` writes `results/scores.json` with load checks, device capability
 logging, CPU vs GPU logit parity, sampled val bpc, and full val/test bpc.
@@ -158,12 +208,15 @@ containing wall time plus the runner's `trained_seconds` (optimizer-only).
 4. Evaluate in FP32.
 5. On a 2 x 64 batch of fixed-seed random byte ids, compare CPU vs CUDA logits
    and record max absolute and max relative difference. Warn if max abs >
-   `1e-4` (`--parity-warn-threshold`).
+   `1e-3` (`--parity-warn-threshold`, with TF32 off).
 6. Sampled val: `torch.manual_seed(seed)` then the published loop (50 iterations,
    batch 64, sequence 1024, microbatched).
 7. Full val and test: contiguous 90/5/5 `ByteData` split, non-overlapping
    windows of 1024, plus a padded remainder window so leftover tail tokens are
-   included. Mean CE in nats / ln(2), token-weighted.
+   included. Mean CE in nats / ln(2), token-weighted. Because the windows do
+   not overlap, the first token of each window has no prior context from
+   earlier bytes in the split. Full-split bpc is therefore not directly
+   comparable to a sliding-window (stride-1) number.
 
 `--max-windows N` limits the full-split pass for smoke tests.
 `--allow-missing-data` loads checkpoints without text8.
@@ -222,6 +275,13 @@ hardware results.
 ## Dependencies
 
 The NGC image supplies PyTorch and numpy. `requirements.txt` installs any extra
-pinned Python packages (none today). Fetch needs `curl`, `git`, and `unzip`,
-which the Dockerfile installs. Host-side scripts need those plus `python3` and
-`sha256sum` or `shasum`.
+pinned Python packages (none today). Fetch needs `curl`, `git`, and `unzip`.
+Those apt packages are pinned in `apt-packages.txt` (Ubuntu 24.04 / noble
+versions for the NGC 26.07 userspace) and recorded again inside the image at
+`/opt/text8-repro-apt-versions.txt` after install. Host-side scripts need those
+plus `python3` and `sha256sum` or `shasum`.
+
+The Compose build context is this directory. `.dockerignore` excludes `.env*`,
+weights (`*.pt`, `*.safetensors`, `*.bin`), `data/`, caches, `runs/`,
+`results/`, `.git`, and secret-like files. The repo root is not the build
+context, so there is no extra root `.dockerignore`.

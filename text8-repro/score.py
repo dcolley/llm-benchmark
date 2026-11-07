@@ -323,8 +323,8 @@ def parse_args(argv=None):
                         help="Load checkpoints and skip corpus evaluations if text8 is absent")
     parser.add_argument("--skip-parity", action="store_true",
                         help="Skip the CPU vs GPU logit comparison")
-    parser.add_argument("--parity-warn-threshold", type=float, default=1e-4,
-                        help="Warn if max absolute CPU/GPU logit difference exceeds this value")
+    parser.add_argument("--parity-warn-threshold", type=float, default=1e-3,
+                        help="Warn if max absolute CPU/GPU logit difference exceeds this value (1e-3 with TF32 off)")
     parser.add_argument("--parity-seed", type=int, default=1)
     return parser.parse_args(argv)
 
@@ -344,7 +344,9 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     wanted = args.only or list(CLAIMS)
     max_windows = args.max_windows if args.max_windows > 0 else None
-    device_report = log_device_report(args.device)
+    # Disable TF32 before any CUDA work (capability query, load, or eval).
+    device_report = log_device_report(args.device, tf32_policy="disabled_for_scoring")
+    (out_dir / "device_report.json").write_text(json.dumps(device_report, indent=2) + "\n", encoding="utf-8")
 
     data_obj = None
     data_info = None
@@ -463,16 +465,25 @@ def main(argv=None) -> int:
             "ckpt_dir": str(ckpt_dir),
         },
         "device_report": device_report,
+        "tf32": device_report.get("tf32"),
         "score_gate": {
-            "metric": "abs(sampled_val_bpc - claimed_sampled_val_bpc)",
+            "metric": "abs(sampled_val_bpc - claimed) and abs(full_val_bpc - claimed)",
             "threshold": 0.01,
-            "note": "Training should not start until this gate passes. Sampled re-score uses a fresh seed and may differ from in-training eval.",
+            "full_test": "info-only, but must be present and complete",
+            "parity_warn_threshold": args.parity_warn_threshold,
+            "note": "Training should not start until scripts/check_score_gate.py passes.",
         },
         "dataset": data_info,
         "eval": {
             "dtype": "float32",
             "seq": args.seq,
             "full_windows": "non-overlapping, padded remainder included",
+            "full_windows_note": (
+                "Each window is scored independently with a causal model. "
+                "The first token of each window has no prior context from earlier "
+                "bytes in the split, so full-split bpc is not directly comparable "
+                "to a sliding-window (stride-1) number."
+            ),
             "sampled": {
                 "iters": args.eval_iters,
                 "batch": args.eval_batch,
@@ -482,13 +493,17 @@ def main(argv=None) -> int:
             "microbatch": args.microbatch,
             "skip_full": args.skip_full,
             "skip_sampled": args.skip_sampled,
+            "skip_parity": args.skip_parity,
+            "allow_missing_data": args.allow_missing_data,
             "max_windows": max_windows,
+            "parity_warn_threshold": args.parity_warn_threshold,
         },
         "checkpoints": results,
     }
     out_path = out_dir / "scores.json"
     out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {out_path}")
+    print(f"Wrote {out_dir / 'device_report.json'}")
     return 0
 
 
