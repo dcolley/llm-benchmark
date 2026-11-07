@@ -64,6 +64,8 @@ text8-repro/
   scripts/check_score_gate.py
   scripts/export_artifacts.py
   tests/test_check_score_gate.py
+  tests/test_replay_eval_batches.py
+  scripts/replay_eval_batches.py
   apt-packages.txt
   artifacts/                 # reviewed copies only; see artifacts/README.md
 ```
@@ -302,6 +304,75 @@ hardware results.
   17` so a re-run can match the published spec.
 - The SSM snapshot README mentions `MODEL_MANIFEST.json`; the published
   package instead has the top-level `MANIFEST.json`.
+
+
+## Replaying Ash's in-training sampled val batches
+
+The default `sampled_val_bpc` path reseeds with `--seed` (default 1) and then
+draws 50 batches of 64. That is the same CPU `torch.randint` stream as Ash's
+**step-0** eval, not the later evals that produced the published claims.
+
+Ash's published runners (`run_matched.py` / `run_ssm.py`) share one draw
+order on the default CPU generator after a second `torch.manual_seed(seed)`
+following model construction. Each training step draws **one**
+`get_batch('train', effective_batch=64, seq, 'cpu')` and then slices it by
+microbatch. Each eval step (`step % 250 == 0`) draws `eval_iters` val batches
+of `eval_batch`, then `max(10, eval_iters//5)` train batches of `eval_batch`.
+The eval at `step == 5000` happens inside the loop; no training batch is drawn
+at that step. The eval set is not reused across steps.
+
+To reconstruct the start offsets (no model) and score a checkpoint on them:
+
+```
+python scripts/replay_eval_batches.py --model transformer --step 4000 \
+    --config "$HF_DIR/transformer/config.json" --progress "$HF_DIR/transformer/progress.json" \
+    --dest /path/to/offsets-transformer-4000.json
+python scripts/replay_eval_batches.py --model transformer --step 5000 \
+    --config "$HF_DIR/transformer/config.json" --progress "$HF_DIR/transformer/progress.json" \
+    --dest /path/to/offsets-transformer-5000.json
+python scripts/replay_eval_batches.py --model ssm --step 4750 \
+    --config "$HF_DIR/ssm/config.json" --progress "$HF_DIR/ssm/progress.json" \
+    --dest /path/to/offsets-ssm-4750.json
+python scripts/replay_eval_batches.py --model ssm --step 5000 \
+    --config "$HF_DIR/ssm/config.json" --progress "$HF_DIR/ssm/progress.json" \
+    --dest /path/to/offsets-ssm-5000.json
+
+python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" \
+    --device cuda --seed 1 --only transformer/best.pt \
+    --val-offsets /path/to/offsets-transformer-4000.json \
+    --compare-progress "$HF_DIR/transformer/progress.json"
+python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" \
+    --device cuda --seed 1 --only transformer/final.pt \
+    --val-offsets /path/to/offsets-transformer-5000.json \
+    --compare-progress "$HF_DIR/transformer/progress.json"
+python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" \
+    --device cuda --seed 1 --only ssm/best.pt \
+    --val-offsets /path/to/offsets-ssm-4750.json \
+    --compare-progress "$HF_DIR/ssm/progress.json"
+python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" \
+    --device cuda --seed 1 --only ssm/final.pt \
+    --val-offsets /path/to/offsets-ssm-5000.json \
+    --compare-progress "$HF_DIR/ssm/progress.json"
+```
+
+`--val-offsets` writes `replay_sampled_bpc` (with the offsets step and sha256)
+and does not change `sampled_val_bpc`, full-split numbers, TF32 fail-closed
+scoring, or `check_score_gate.py`.
+
+Precision: `score.py` evaluates in FP32 with TF32 disabled. Ash's
+`evaluate()` (`run_matched.py:85-95`, `run_ssm.py:92-102`) also calls the
+model without BF16 autocast (autocast is used only on training steps,
+`run_matched.py:118-119`). A remaining difference is TF32, which NGC images
+may leave enabled during his eval. Replayed bpc may therefore differ slightly
+from `progress.json` history `val_bpc`; agreement around `1e-4` is expected
+only under matched precision. `--match-training-precision` enables TF32 for
+the replay result only (labelled, never used by the gate). Prefer regenerating
+the offsets JSON on the same PyTorch that trained, and compare
+`offsets_sha256` before scoring.
+
+If `--config`/`--progress` show a non-contiguous history, `complete: false`,
+or a missing requested step, the replayer refuses unless `--force-assume-clean`
+is passed.
 
 ## Dependencies
 

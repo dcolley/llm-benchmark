@@ -248,6 +248,81 @@ def sampled_bpc(model, data, split: str, eval_iters: int, eval_batch: int, seq_l
     return sum(losses) / len(losses) / math.log(2)
 
 
+def load_val_offsets(path: Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if "offsets" not in payload:
+        raise SystemExit(f"{path} is missing an offsets list")
+    return payload
+
+
+def windows_from_starts(src, starts, seq_len: int):
+    """Build x/y exactly as ByteData.get_batch (data.py:51-52)."""
+    import torch
+
+    xs = []
+    ys = []
+    n = int(src.shape[0])
+    for raw in starts:
+        i = int(raw)
+        if i < 0 or i + seq_len >= n:
+            raise SystemExit(f"val start offset {i} is out of range for n={n} seq={seq_len}")
+        xs.append(src[i : i + seq_len])
+        ys.append(src[i + 1 : i + seq_len + 1])
+    return torch.stack(xs), torch.stack(ys)
+
+
+def _tf32_flags():
+    import torch
+
+    return {
+        "matmul": bool(getattr(torch.backends.cuda.matmul, "allow_tf32", False)),
+        "cudnn": bool(getattr(torch.backends.cudnn, "allow_tf32", False)),
+    }
+
+
+def _set_tf32_flags(matmul: bool, cudnn: bool) -> None:
+    import torch
+
+    if hasattr(torch.backends.cuda, "matmul"):
+        torch.backends.cuda.matmul.allow_tf32 = matmul
+    if hasattr(torch.backends, "cudnn"):
+        torch.backends.cudnn.allow_tf32 = cudnn
+
+
+def replay_evaluate(model, val_src, batches, seq_len: int, microbatch: int, device: str) -> float:
+    """Mean of per-batch mean losses / ln2, matching run_matched.py:85-95 / run_ssm.py:92-102.
+
+    Ash's evaluate() has no autocast; each batch loss is the microbatch-size-weighted
+    mean (`loss.item() * xx.shape[0] / eval_batch`), then those per-batch means are
+    averaged (`sum(losses)/len(losses)/math.log(2)`).
+    """
+    import torch
+
+    model.eval()
+    losses = []
+    with torch.no_grad():
+        for starts in batches:
+            x, y = windows_from_starts(val_src, starts, seq_len)
+            eval_batch = int(x.shape[0])
+            total = 0.0
+            for start in range(0, eval_batch, microbatch):
+                xx = x[start : start + microbatch].to(device)
+                yy = y[start : start + microbatch].to(device)
+                _, loss = model(xx, yy)
+                if not torch.isfinite(loss):
+                    raise RuntimeError("non-finite replay sampled loss")
+                total += float(loss.item()) * int(xx.shape[0]) / eval_batch
+            losses.append(total)
+    return sum(losses) / len(losses) / math.log(2)
+
+
+def history_val_bpc(progress: dict, step: int) -> float | None:
+    for row in progress.get("history") or []:
+        if int(row.get("step", -1)) == step and "val_bpc" in row:
+            return float(row["val_bpc"])
+    return None
+
+
 def logit_parity(model, seed: int, warn_threshold: float, restore_device: str):
     """Compare FP32 logits on a small fixed batch on CPU vs CUDA."""
     import torch
@@ -349,6 +424,23 @@ def parse_args(argv=None):
     parser.add_argument("--parity-warn-threshold", type=float, default=1e-3,
                         help="Warn if max absolute CPU/GPU logit difference exceeds this value (1e-3 with TF32 off)")
     parser.add_argument("--parity-seed", type=int, default=1)
+    parser.add_argument(
+        "--val-offsets",
+        type=Path,
+        help="JSON from scripts/replay_eval_batches.py; scores those windows as replay_sampled_bpc",
+    )
+    parser.add_argument(
+        "--match-training-precision",
+        action="store_true",
+        help="For replay_sampled_bpc only: leave/enable TF32 like a default CUDA eval. "
+             "Ash's evaluate() itself has no BF16 autocast (run_matched.py:85-95). "
+             "Never applied to sampled_val_bpc, full splits, or the gate.",
+    )
+    parser.add_argument(
+        "--compare-progress",
+        type=Path,
+        help="With --val-offsets, compare replay_sampled_bpc to progress.json history val_bpc at that step",
+    )
     return parser.parse_args(argv)
 
 
@@ -466,6 +558,71 @@ def main(argv=None) -> int:
                 ),
             }
             print(f"  sampled val bpc={record['sampled_val_bpc']}", flush=True)
+        if args.val_offsets is not None:
+            offsets_payload = load_val_offsets(args.val_offsets)
+            batches = offsets_payload["offsets"]
+            seq_len = int(offsets_payload.get("config", {}).get("seq", args.seq))
+            saved_tf32 = _tf32_flags()
+            precision_label = "fp32_tf32_off"
+            try:
+                if args.match_training_precision:
+                    _set_tf32_flags(True, True)
+                    precision_label = (
+                        "match_training_precision: TF32 allowed for this result only; "
+                        "Ash evaluate() has no autocast (run_matched.py:85-95 / run_ssm.py:92-102)"
+                    )
+                t_replay = time.monotonic()
+                replay_bpc = replay_evaluate(
+                    loaded["model"], data_obj.val, batches, seq_len, args.microbatch, args.device,
+                )
+            finally:
+                _set_tf32_flags(saved_tf32["matmul"], saved_tf32["cudnn"])
+            record["replay_sampled_bpc"] = replay_bpc
+            record["replay_sampled"] = {
+                "step": offsets_payload.get("step"),
+                "seed": offsets_payload.get("seed"),
+                "model": offsets_payload.get("model"),
+                "offsets_sha256": offsets_payload.get("offsets_sha256"),
+                "offsets_path": str(args.val_offsets),
+                "n_batches": len(batches),
+                "seq": seq_len,
+                "microbatch": args.microbatch,
+                "seconds": time.monotonic() - t_replay,
+                "precision": precision_label,
+                "note": (
+                    "Replayed in-training val windows. Default scoring path is unchanged. "
+                    "Ash evaluate() (run_matched.py:85-95) averages per-batch means / ln2 "
+                    "in FP32 without autocast; training steps use BF16 autocast "
+                    "(run_matched.py:118-119). Default replay here is FP32 with TF32 off, "
+                    "so replay_sampled_bpc may differ slightly from progress.json history "
+                    "val_bpc (~1e-4 expected only under matched precision)."
+                ),
+            }
+            if args.compare_progress is not None:
+                progress = json.loads(args.compare_progress.read_text(encoding="utf-8"))
+                claimed = history_val_bpc(progress, int(offsets_payload["step"]))
+                record["replay_sampled"]["progress_path"] = str(args.compare_progress)
+                record["replay_sampled"]["progress_val_bpc"] = claimed
+                if claimed is not None:
+                    delta = replay_bpc - claimed
+                    record["replay_sampled"]["delta_vs_progress"] = delta
+                    print(
+                        f"  replay sampled bpc={replay_bpc} step={offsets_payload.get('step')} "
+                        f"progress={claimed} delta={delta}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"  replay sampled bpc={replay_bpc} step={offsets_payload.get('step')} "
+                        f"(no progress val_bpc at that step)",
+                        flush=True,
+                    )
+            else:
+                print(
+                    f"  replay sampled bpc={replay_bpc} step={offsets_payload.get('step')} "
+                    f"sha={offsets_payload.get('offsets_sha256')}",
+                    flush=True,
+                )
         if not args.skip_full:
             for split_name, tensor in (("val", data_obj.val), ("test", data_obj.test)):
                 t2 = time.monotonic()
@@ -517,6 +674,8 @@ def main(argv=None) -> int:
             "skip_full": args.skip_full,
             "skip_sampled": args.skip_sampled,
             "skip_parity": args.skip_parity,
+            "val_offsets": str(args.val_offsets) if args.val_offsets else None,
+            "match_training_precision": args.match_training_precision,
             "allow_missing_data": args.allow_missing_data,
             "max_windows": max_windows,
             "parity_warn_threshold": args.parity_warn_threshold,
