@@ -101,26 +101,50 @@ Do not put hostnames or IP addresses in either file.
 Training is **not** started by `docker compose up`. The `train-transformer` and
 `train-ssm` services are behind the `train` profile.
 
-The gate is fail-closed (`scripts/check_score_gate.py`). It passes only if all
-of the following hold:
+The gate is fail-closed (`scripts/check_score_gate.py`). Exit codes:
+
+- `0` PASS
+- `1` FAIL
+- `2` missing or invalid `scores.json`
+- `3` `PARITY HOLD - needs PM review`
+
+It passes only if all of the following hold:
 
 - All four published checkpoints are present exactly once (`transformer/best.pt`,
   `transformer/final.pt`, `ssm/best.pt`, `ssm/final.pt`), with no duplicates
   and no extras.
 - Each checkpoint loaded with `weights_only=True`, strict `state_dict` loading,
   and finite-tensor checks.
-- Full val and full test both finished (`truncated` is false, token counts
-  present).
-- CPU/GPU logit parity ran and did not warn, and was not skipped when CUDA was
-  available or requested.
-- Both `sampled_val_bpc` and `full_val_bpc` are within **0.01** of that
-  checkpoint's claimed sampled validation bpc. `full_test_bpc` is printed for
-  information and must be present and complete, but is not compared to the claim.
+- Full val and full test both have `complete: true`, `truncated` present and
+  false, and `n_tokens` equal to the expected coverage: text8 is 100,000,000
+  bytes with a contiguous 90/5/5 split, so val and test are each 5,000,000
+  bytes. Non-overlapping windows of 1024 plus a padded remainder score every
+  byte except index 0 of the split, which is **4,999,999** tokens.
+- Scoring ran on GPU. Skipped or CPU-only parity fails. The gate recomputes
+  the parity band from `cpu_gpu_parity.max_abs_diff` and does not trust payload
+  warn flags. UKLLM's policy: `max_abs <= 1e-4` PASS; `1e-4 < max_abs <= 1e-3`
+  HOLD (exit 3); `max_abs > 1e-3` or missing/non-finite `max_abs` FAIL.
+  Different CPU vs GPU reduction order (MKL/OpenBLAS vs cuBLAS) and FFT
+  libraries (pocketfft vs cuFFT for the SSM FFT conv) over 11–12 layers at
+  width 1088, with logits around 10 and FP32 eps about 1.2e-7, produce honest
+  diffs from about 1e-5 to a few 1e-4. Real bugs (wrong kernel, dtype, or a
+  TF32 leak) show up around 1e-3 to 1e-1. TF32 is gated separately. A HOLD
+  means Ops brings the numbers to UKLLM, who decides.
+- Both `sampled_val_bpc` and `full_val_bpc` are within the fixed **0.01**
+  tolerance of the hard-coded published claims (not a claim copied from the
+  payload). `full_test_bpc` is printed for information and must be present and
+  complete, but is not compared to the claim. A `--threshold` other than 0.01
+  fails.
+- Recorded TF32 metadata must show the overrides off. `tf32.env`
+  `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE` and `NVIDIA_TF32_OVERRIDE` are always
+  written by `score.py` (null if unset); a missing `tf32` block, a missing key,
+  or any value other than `"0"` fails. `cuda_matmul_allow_tf32` and
+  `cudnn_allow_tf32` must be false, and `float32_matmul_precision` must be
+  `"highest"`. This is a gate failure, not a warning.
 - The run did not set a smoke/skip/limit flag (`--skip-full`, `--skip-sampled`,
   `--skip-parity`, `--allow-missing-data`, or `--max-windows`).
 
-Non-finite scores, deltas, or a threshold that is non-finite or ≤ 0 fail the
-gate (a NaN comparison must never pass).
+Non-finite scores or deltas fail the gate (a NaN comparison must never pass).
 
 ```
 python scripts/check_score_gate.py results/scores.json
@@ -183,9 +207,10 @@ The score service sets `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=0` and
 `torch.backends.cudnn.allow_tf32=False`, and
 `torch.set_float32_matmul_precision("highest")` before any CUDA work, and
 records the effective env vars, flags, and matmul precision in
-`device_report` / `scores.json`. If an override env is still `1`, it warns
-loudly. Training services do not set those env vars and do not change TF32
-flags; they only record whatever the container inherited, matching the
+`device_report` / `scores.json`. If an override env is still set to something
+other than `0`, the scorer prints a loud warning and `check_score_gate.py`
+fails closed. Training services do not set those env vars and do not change
+TF32 flags; they only record whatever the container inherited, matching the
 published runners (which also leave TF32 untouched).
 
 `score`, `train-transformer` and `train-ssm` use `network_mode: none`. Fetch
@@ -207,8 +232,10 @@ containing wall time plus the runner's `trained_seconds` (optimizer-only).
 3. `load_state_dict(..., strict=True)` and reject non-finite tensors.
 4. Evaluate in FP32.
 5. On a 2 x 64 batch of fixed-seed random byte ids, compare CPU vs CUDA logits
-   and record max absolute and max relative difference. Warn if max abs >
-   `1e-3` (`--parity-warn-threshold`, with TF32 off).
+   and record `max_abs_diff`, `relative_error` (`max_abs / max|cpu_logit|`),
+   and the parity-batch bpc on CPU and GPU plus their delta. The gate applies
+   UKLLM's three-band rule to `max_abs_diff` (see above); it does not trust
+   the informational `warn` flag.
 6. Sampled val: `torch.manual_seed(seed)` then the published loop (50 iterations,
    batch 64, sequence 1024, microbatched).
 7. Full val and test: contiguous 90/5/5 `ByteData` split, non-overlapping
@@ -216,7 +243,8 @@ containing wall time plus the runner's `trained_seconds` (optimizer-only).
    included. Mean CE in nats / ln(2), token-weighted. Because the windows do
    not overlap, the first token of each window has no prior context from
    earlier bytes in the split. Full-split bpc is therefore not directly
-   comparable to a sliding-window (stride-1) number.
+   comparable to a sliding-window (stride-1) number. Each full split writes
+   `complete` and `n_tokens` (expected 4,999,999 for val and test).
 
 `--max-windows N` limits the full-split pass for smoke tests.
 `--allow-missing-data` loads checkpoints without text8.

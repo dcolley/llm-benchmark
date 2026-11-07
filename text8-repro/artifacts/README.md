@@ -15,6 +15,8 @@ Allowlist (nothing else is copied):
 - `provenance.md`
 - `gate.json`
 - `gate.txt`
+- `transformer/progress.json` and `transformer/wrapper_timing.json` if present
+- `ssm/progress.json` and `ssm/wrapper_timing.json` if present
 
 The exporter refuses weights, datasets, `.env` files, and other secrets. Run it
 only after reviewing the ignored `results/` outputs.

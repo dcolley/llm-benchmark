@@ -27,9 +27,13 @@ but must be present and complete for the gate.
 
 ## CPU vs GPU logit parity
 
-Fixed batch: 2 sequences of 64 byte ids, seed 1, FP32, TF32 off. Warn / fail
-the gate if max abs diff on logits is above **1e-3**. Record both max abs and
-max rel. Measured max_abs cannot be filled until Ops runs scoring on hardware.
+Fixed batch: 2 sequences of 64 byte ids, seed 1, FP32, TF32 off. The gate
+uses UKLLM's three-band policy on `max_abs_diff`: `<= 1e-4` PASS;
+`1e-4 < max_abs <= 1e-3` HOLD (exit 3, needs PM review); `> 1e-3` FAIL.
+Missing or non-finite `max_abs` is FAIL. Also record `relative_error`
+(`max_abs / max|cpu_logit|`) and the parity-batch bpc delta (CPU vs GPU)
+as information only. Measured values cannot be filled until Ops runs
+scoring on hardware.
 
 | Checkpoint | max abs diff | max rel diff | Warning? |
 | --- | ---: | ---: | --- |

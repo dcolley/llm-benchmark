@@ -222,6 +222,7 @@ def full_bpc(model, src, seq_len: int, microbatch: int, device: str, max_windows
         "n_windows": n_windows,
         "n_tokens": total_tokens,
         "truncated": max_windows is not None and n_windows < available_windows,
+        "complete": not (max_windows is not None and n_windows < available_windows),
     }
 
 
@@ -271,25 +272,47 @@ def logit_parity(model, seed: int, warn_threshold: float, restore_device: str):
         cpu_logits, _ = model(ids)
         cpu_logits = cpu_logits.detach().float()
         model.to(restore_device)
+    # Second forward with identical random targets so CPU/GPU bpc can be compared.
+    import torch.nn.functional as F
+    targets = ids
+    gpu_loss = F.cross_entropy(
+        gpu_logits.reshape(-1, gpu_logits.size(-1)), targets.reshape(-1)
+    )
+    cpu_loss = F.cross_entropy(
+        cpu_logits.reshape(-1, cpu_logits.size(-1)), targets.reshape(-1)
+    )
+    import math
+    gpu_bpc = float(gpu_loss.item()) / math.log(2)
+    cpu_bpc = float(cpu_loss.item()) / math.log(2)
     diff = (gpu_logits - cpu_logits).abs()
     rel = diff / cpu_logits.abs().clamp_min(1e-12)
     max_abs = float(diff.max().item())
     max_rel = float(rel.max().item())
+    cpu_logit_abs_max = float(cpu_logits.abs().max().item())
+    relative_error = max_abs / cpu_logit_abs_max if cpu_logit_abs_max > 0 else float("inf")
     report.update(
         skipped=False,
         max_abs_diff=max_abs,
         max_rel_diff=max_rel,
         mean_abs_diff=float(diff.mean().item()),
+        cpu_logit_abs_max=cpu_logit_abs_max,
+        relative_error=relative_error,
+        parity_batch_bpc_cpu=cpu_bpc,
+        parity_batch_bpc_gpu=gpu_bpc,
+        parity_batch_bpc_delta=gpu_bpc - cpu_bpc,
         warn=max_abs > warn_threshold,
+    )
+    print(
+        f"  cpu/gpu parity max_abs={max_abs:.6g} relative_error={relative_error:.6g} "
+        f"(max_abs/max|cpu_logit|) parity_batch_bpc_delta={gpu_bpc - cpu_bpc:.6g}",
+        flush=True,
     )
     if report["warn"]:
         print(
             f"WARNING: CPU/GPU logit max abs diff {max_abs:.6g} "
-            f"(max rel {max_rel:.6g}) exceeds {warn_threshold}",
+            f"exceeds informational threshold {warn_threshold}",
             flush=True,
         )
-    else:
-        print(f"  cpu/gpu parity max_abs={max_abs:.6g} max_rel={max_rel:.6g}", flush=True)
     return report
 
 
