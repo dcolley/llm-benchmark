@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import math
 import sys
 from copy import deepcopy
@@ -20,7 +21,13 @@ from check_score_gate import (  # noqa: E402
     PUBLISHED_CLAIMS,
     evaluate_gate,
 )
-from export_artifacts import export, prepare_fresh_dest, resolve_inside  # noqa: E402
+from export_artifacts import (  # noqa: E402
+    artifacts_root,
+    export,
+    main as export_main,
+    prepare_fresh_dest,
+    resolve_inside,
+)
 
 
 def _ckpt(name: str, **overrides) -> dict:
@@ -313,26 +320,39 @@ def _write_export_fixtures(base: Path):
     return src, runs
 
 
+def _test_dest(name: str) -> Path:
+    import shutil
+    dest = artifacts_root() / name
+    if dest.is_symlink() or dest.is_file():
+        dest.unlink()
+    elif dest.exists():
+        shutil.rmtree(dest)
+    return dest
+
+
 def test_export_happy_path():
     src, runs = _write_export_fixtures(Path("/tmp/gate-export-happy"))
-    dest = Path("/tmp/gate-export-happy/reviewed")
-    copied = export(src, dest, runs)
+    dest = _test_dest("test-reviewed-complete")
+    copied = export(src, dest, runs, stage="complete")
     assert "scores.json" in copied
     assert "runs/transformer/progress.json" in copied
     assert "runs/ssm/wrapper_timing.json" in copied
     assert (dest / "runs" / "ssm" / "wrapper_timing.json").is_file()
+    _test_dest("test-reviewed-complete")
 
 
 def test_export_missing_progress():
     src, runs = _write_export_fixtures(Path("/tmp/gate-export-missing"))
     (runs / "transformer" / "progress.json").unlink()
-    dest = Path("/tmp/gate-export-missing/reviewed")
+    dest = _test_dest("test-reviewed-complete-missing")
     try:
-        export(src, dest, runs)
+        export(src, dest, runs, stage="complete")
         raise AssertionError("missing progress should have failed")
     except SystemExit as exc:
         assert "missing required" in str(exc).lower()
         assert "transformer/progress.json" in str(exc)
+    finally:
+        _test_dest("test-reviewed-complete-missing")
 
 
 def test_export_path_escape():
@@ -345,29 +365,32 @@ def test_export_path_escape():
 
 
 def test_export_symlink_dest():
-    import shutil
     src, runs = _write_export_fixtures(Path("/tmp/gate-export-symdest"))
     target = Path("/tmp/gate-export-symdest/target")
-    dest = Path("/tmp/gate-export-symdest/reviewed")
+    dest = _test_dest("test-reviewed-symdest")
     target.mkdir()
     dest.symlink_to(target)
     try:
-        export(src, dest, runs)
+        export(src, dest, runs, stage="complete")
         raise AssertionError("symlink dest should have been refused")
     except SystemExit as exc:
         assert "symlink" in str(exc).lower()
+    finally:
+        _test_dest("test-reviewed-symdest")
 
 
 def test_export_stale_dest():
     src, runs = _write_export_fixtures(Path("/tmp/gate-export-stale"))
-    dest = Path("/tmp/gate-export-stale/reviewed")
+    dest = _test_dest("test-reviewed-stale")
     dest.mkdir()
     (dest / "old.txt").write_text("stale\n", encoding="utf-8")
     try:
-        export(src, dest, runs)
+        export(src, dest, runs, stage="complete")
         raise AssertionError("stale dest should have been refused")
     except SystemExit as exc:
         assert "non-empty" in str(exc).lower()
+    finally:
+        _test_dest("test-reviewed-stale")
 
 
 def test_export_refuses_symlink_and_escape():
@@ -382,6 +405,76 @@ def test_export_refuses_symlink_and_escape():
         raise AssertionError("symlink should have been refused")
     except SystemExit as exc:
         assert "symlink" in str(exc).lower()
+
+
+def test_export_scoring_without_runs_dir():
+    src, _runs = _write_export_fixtures(Path("/tmp/gate-export-scoring"))
+    dest = _test_dest("test-reviewed-scoring")
+    saved = os.environ.pop("RUNS_DIR", None)
+    try:
+        copied = export(src, dest, None, stage="scoring")
+        assert "scores.json" in copied
+        assert "gate.json" in copied
+        assert not any(name.startswith("runs/") for name in copied)
+        assert not (dest / "runs").exists()
+        rc = export_main(["--stage", "scoring", "--src", str(src), "--dest", str(_test_dest("test-reviewed-scoring-cli"))])
+        assert rc == 0
+    finally:
+        if saved is not None:
+            os.environ["RUNS_DIR"] = saved
+        _test_dest("test-reviewed-scoring")
+        _test_dest("test-reviewed-scoring-cli")
+
+
+def test_export_scoring_refuses_runs_src():
+    src, runs = _write_export_fixtures(Path("/tmp/gate-export-scoring-runs"))
+    dest = _test_dest("test-reviewed-scoring-runs")
+    try:
+        export_main([
+            "--stage", "scoring",
+            "--src", str(src),
+            "--dest", str(dest),
+            "--runs-src", str(runs),
+        ])
+        raise AssertionError("scoring should have refused --runs-src")
+    except SystemExit as exc:
+        assert "--runs-src" in str(exc)
+        assert "not allowed" in str(exc).lower()
+    finally:
+        _test_dest("test-reviewed-scoring-runs")
+
+
+def test_export_symlink_ancestor():
+    src, _runs = _write_export_fixtures(Path("/tmp/gate-export-anc"))
+    link = _test_dest("test-link-ancestor")
+    target = Path("/tmp/gate-export-anc/target")
+    target.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    dest = link / "reviewed"
+    try:
+        export(src, dest, None, stage="scoring")
+        raise AssertionError("symlink ancestor should have been refused")
+    except SystemExit as exc:
+        message = str(exc).lower()
+        assert "symlink" in message
+        assert "ancestor" in message
+    finally:
+        if dest.exists() and not dest.is_symlink():
+            import shutil
+            shutil.rmtree(dest)
+        _test_dest("test-link-ancestor")
+
+
+def test_export_empty_dest_ok():
+    src, _runs = _write_export_fixtures(Path("/tmp/gate-export-empty"))
+    dest = _test_dest("test-reviewed-empty")
+    dest.mkdir()
+    try:
+        copied = export(src, dest, None, stage="scoring")
+        assert "scores.json" in copied
+        assert (dest / "scores.json").is_file()
+    finally:
+        _test_dest("test-reviewed-empty")
 
 
 def main() -> int:
@@ -417,6 +510,10 @@ def main() -> int:
         test_export_symlink_dest,
         test_export_stale_dest,
         test_export_refuses_symlink_and_escape,
+        test_export_scoring_without_runs_dir,
+        test_export_scoring_refuses_runs_src,
+        test_export_symlink_ancestor,
+        test_export_empty_dest_ok,
     ]
     failed = 0
     for test in tests:

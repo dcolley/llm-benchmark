@@ -8,7 +8,8 @@
 #   ./scripts/provenance_diff.sh    # uses UPSTREAM_DIR from .env; needs network
 #   docker compose up --build score
 #   python scripts/check_score_gate.py ${RESULTS_DIR}/scores.json
-#   python scripts/export_artifacts.py --src ${RESULTS_DIR} --runs-src ${RUNS_DIR} --dest artifacts/reviewed
+#   python scripts/export_artifacts.py --stage scoring --src ${RESULTS_DIR} --dest artifacts/reviewed-scoring
+#   python scripts/export_artifacts.py --stage complete --src ${RESULTS_DIR} --runs-src ${RUNS_DIR} --dest artifacts/reviewed-complete
 #   # only after the gate passes:
 #   docker compose --profile train run --rm train-transformer
 #   docker compose --profile train run --rm train-ssm

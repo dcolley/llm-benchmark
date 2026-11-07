@@ -172,10 +172,11 @@ variables:
 ./scripts/provenance_diff.sh
 python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DIR" --device cuda --seed 1
 python scripts/check_score_gate.py "$RESULTS_DIR/scores.json"
-python scripts/export_artifacts.py --src "$RESULTS_DIR" --runs-src "$RUNS_DIR" --dest artifacts/reviewed
+python scripts/export_artifacts.py --stage scoring --src "$RESULTS_DIR" --dest artifacts/reviewed-scoring
 # only after the gate passes:
 python train_transformer.py --out-dir "$RUNS_DIR/transformer" --seed 1 --data "$TEXT8_PATH" --hf-dir "$HF_DIR"
 python train_ssm.py --out-dir "$RUNS_DIR/ssm" --seed 1 --data "$TEXT8_PATH" --hf-dir "$HF_DIR"
+python scripts/export_artifacts.py --stage complete --src "$RESULTS_DIR" --runs-src "$RUNS_DIR" --dest artifacts/reviewed-complete
 ```
 
 Compose (draft runtime):
@@ -186,11 +187,12 @@ docker compose --profile fetch run --rm fetch
 ./scripts/provenance_diff.sh   # not a compose service; needs network and UPSTREAM_DIR
 docker compose up --build score
 python scripts/check_score_gate.py /absolute/path/to/results/scores.json
-python scripts/export_artifacts.py --src /absolute/path/to/results --runs-src /absolute/path/to/runs --dest artifacts/reviewed
-# dest must not already exist as a non-empty directory or symlink
+python scripts/export_artifacts.py --stage scoring --src /absolute/path/to/results --dest artifacts/reviewed-scoring
+# dest must be a fresh subdirectory of artifacts/ (not a symlink, not non-empty)
 # only after the gate passes:
 docker compose --profile train run --rm train-transformer
 docker compose --profile train run --rm train-ssm
+python scripts/export_artifacts.py --stage complete --src /absolute/path/to/results --runs-src /absolute/path/to/runs --dest artifacts/reviewed-complete
 ```
 
 `provenance_diff.sh` diffs both vendored `phase_ssm` trees against upstream
