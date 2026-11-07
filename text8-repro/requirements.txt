@@ -1,0 +1,7 @@
+# Extra Python dependencies beyond the NGC PyTorch 26.07 base image
+# nvcr.io/nvidia/pytorch@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c
+# That image already provides torch 2.13 and numpy, which is all the
+# published runners and this scoring code import.
+#
+# Pin any future extra packages with exact versions below, for example:
+# somepkg==1.2.3

@@ -1,0 +1,146 @@
+# Runtime draft for the PhaseMesh text8 re-check.
+# Host paths come from the gitignored .env file.
+#
+# Default (`docker compose up`) starts only the scoring service.
+# Do not start training until `python scripts/check_score_gate.py` passes
+# (reproduced sampled val bpc within 0.01 of each claim).
+#
+#   docker compose --profile fetch run --rm fetch
+#   docker compose up --build score
+#   python scripts/check_score_gate.py ${RESULTS_DIR}/scores.json
+#   docker compose --profile train run --rm train-transformer
+#   docker compose --profile train run --rm train-ssm
+#
+# One GPU per service (count: 1). Select which host GPU with
+# NVIDIA_VISIBLE_DEVICES in .env. The same image is used on both machines.
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: ${IMAGE_NAME:-text8-repro:phasemesh}
+  working_dir: /work
+  env_file:
+    - .env
+  environment:
+    HF_DIR: /data/hf
+    TEXT8_DIR: /data/corpus
+    TEXT8_PATH: /data/corpus/text8
+    RESULTS_DIR: /work/results
+    DEVICE: ${DEVICE:-cuda}
+    SEED: ${SEED:-1}
+    MICROBATCH: ${MICROBATCH:-4}
+    WALL_SECONDS: ${WALL_SECONDS:-259200}
+    NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-0}
+    TORCH_HOME: /work/cache/torch
+    XDG_CACHE_HOME: /work/cache
+    TRITON_CACHE_DIR: /work/cache/triton
+    HF_HOME: /work/cache/hf
+  # Single GPU; no tensor parallelism.
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+services:
+  score:
+    <<: *app
+    network_mode: "none"
+    volumes:
+      - ${HF_DIR}:/data/hf:ro
+      - ${TEXT8_DIR}:/data/corpus:ro
+      - ${RESULTS_DIR}:/work/results
+      - ${CACHE_DIR}:/work/cache
+    command:
+      - python
+      - score.py
+      - --ckpt-dir
+      - /data/hf
+      - --data
+      - /data/corpus/text8
+      - --out-dir
+      - /work/results
+      - --device
+      - cuda
+      - --seed
+      - ${SEED:-1}
+
+  train-transformer:
+    <<: *app
+    profiles: ["train"]
+    network_mode: "none"
+    volumes:
+      - ${HF_DIR}:/data/hf:ro
+      - ${TEXT8_DIR}:/data/corpus:ro
+      - ${RESULTS_DIR}:/work/results
+      - ${RUNS_DIR}:/work/runs
+      - ${CACHE_DIR}:/work/cache
+    command:
+      - python
+      - train_transformer.py
+      - --out-dir
+      - /work/runs/transformer
+      - --seed
+      - ${SEED:-1}
+      - --data
+      - /data/corpus/text8
+      - --hf-dir
+      - /data/hf
+      - --device
+      - cuda
+      - --wall-seconds
+      - ${WALL_SECONDS:-259200}
+
+  train-ssm:
+    <<: *app
+    profiles: ["train"]
+    network_mode: "none"
+    volumes:
+      - ${HF_DIR}:/data/hf:ro
+      - ${TEXT8_DIR}:/data/corpus:ro
+      - ${RESULTS_DIR}:/work/results
+      - ${RUNS_DIR}:/work/runs
+      - ${CACHE_DIR}:/work/cache
+    command:
+      - python
+      - train_ssm.py
+      - --out-dir
+      - /work/runs/ssm
+      - --seed
+      - ${SEED:-1}
+      - --data
+      - /data/corpus/text8
+      - --hf-dir
+      - /data/hf
+      - --device
+      - cuda
+      - --wall-seconds
+      - ${WALL_SECONDS:-259200}
+
+  fetch:
+    <<: *app
+    profiles: ["fetch"]
+    environment:
+      HF_DIR: /data/hf
+      TEXT8_DIR: /data/corpus
+      TEXT8_PATH: /data/corpus/text8
+      RESULTS_DIR: /work/results
+      HF_REPO: ${HF_REPO:-MarxistLeninist/phasemesh-text8-comparison}
+      HF_REVISION: ${HF_REVISION:-2eb1bef95b39e9745035044679f9d18b8ac3513a}
+      HF_BASE_URL: ${HF_BASE_URL:-https://huggingface.co}
+      TEXT8_URL: ${TEXT8_URL:-http://mattmahoney.net/dc/text8.zip}
+      TEXT8_EXPECTED_SHA256: ${TEXT8_EXPECTED_SHA256:-6e890197040d37d85beb962ae1f041ff1d9a9ca8d20c7d99c85027eebf51dca7}
+      UPSTREAM_REPO: ${UPSTREAM_REPO:-https://github.com/ashhart/PhaseMesh}
+      UPSTREAM_COMMIT: ${UPSTREAM_COMMIT:-3ae43ffac6c0699857cada0865f156405fb95956}
+    volumes:
+      - ${HF_DIR}:/data/hf
+      - ${TEXT8_DIR}:/data/corpus
+      - ${RESULTS_DIR}:/work/results
+      - ${CACHE_DIR}:/work/cache
+    command:
+      - bash
+      - -lc
+      - scripts/fetch_hf.sh && scripts/fetch_text8.sh
