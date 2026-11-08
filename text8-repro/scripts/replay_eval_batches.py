@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay Ash's in-training sampled-val start offsets (no model).
+"""Replay the Marx reference run's in-training sampled-val start offsets (no model).
 
 Mirrors transformer/run_matched.py and ssm/run_ssm.py: after the
 post-construction torch.manual_seed(seed), every corpus window is drawn by

@@ -292,7 +292,7 @@ def _set_tf32_flags(matmul: bool, cudnn: bool) -> None:
 def replay_evaluate(model, val_src, batches, seq_len: int, microbatch: int, device: str) -> float:
     """Mean of per-batch mean losses / ln2, matching run_matched.py:85-95 / run_ssm.py:92-102.
 
-    Ash's evaluate() has no autocast; each batch loss is the microbatch-size-weighted
+    The reference evaluate() has no autocast; each batch loss is the microbatch-size-weighted
     mean (`loss.item() * xx.shape[0] / eval_batch`), then those per-batch means are
     averaged (`sum(losses)/len(losses)/math.log(2)`).
     """
@@ -433,7 +433,7 @@ def parse_args(argv=None):
         "--match-training-precision",
         action="store_true",
         help="For replay_sampled_bpc only: leave/enable TF32 like a default CUDA eval. "
-             "Ash's evaluate() itself has no BF16 autocast (run_matched.py:85-95). "
+             "The reference evaluate() itself has no BF16 autocast (run_matched.py:85-95). "
              "Never applied to sampled_val_bpc, full splits, or the gate.",
     )
     parser.add_argument(
@@ -569,7 +569,7 @@ def main(argv=None) -> int:
                     _set_tf32_flags(True, True)
                     precision_label = (
                         "match_training_precision: TF32 allowed for this result only; "
-                        "Ash evaluate() has no autocast (run_matched.py:85-95 / run_ssm.py:92-102)"
+                        "Reference evaluate() has no autocast (run_matched.py:85-95 / run_ssm.py:92-102)"
                     )
                 t_replay = time.monotonic()
                 replay_bpc = replay_evaluate(
@@ -591,7 +591,7 @@ def main(argv=None) -> int:
                 "precision": precision_label,
                 "note": (
                     "Replayed in-training val windows. Default scoring path is unchanged. "
-                    "Ash evaluate() (run_matched.py:85-95) averages per-batch means / ln2 "
+                    "Reference evaluate() (run_matched.py:85-95) averages per-batch means / ln2 "
                     "in FP32 without autocast; training steps use BF16 autocast "
                     "(run_matched.py:118-119). Default replay here is FP32 with TF32 off, "
                     "so replay_sampled_bpc may differ slightly from progress.json history "

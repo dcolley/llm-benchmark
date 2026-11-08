@@ -4,11 +4,13 @@
 
 All four published checkpoints reproduce the reported sampled validation scores on the exact evaluation batches. Independent seed-1 Transformer training reproduces within 0.01 bpc on all eight post-training metrics. SSM retraining is in progress, with status below as of 8 November 2026, 10:09 GMT. These findings support this specific reproduction, not a general architectural ranking.
 
+The reference run checked here, the published checkpoints at MarxistLeninist/phasemesh-text8-comparison revision 2eb1bef, is Marx's reproduction of Ash's PhaseSSM/PhaseMesh work; the upstream code is Ash's [ashhart/PhaseMesh](https://github.com/ashhart/PhaseMesh) at commit 3ae43ff.
+
 ## Conclusions so far
 
 **Checkpoint results independently reproduced**
 
-All four published checkpoints reproduce Ash’s reported sampled validation bpc within 3e-8 when scored on his exact batches. The initial sampled-score failures came from different evaluation batches, not faulty checkpoints. The Transformer’s training also reproduces end to end on independent hardware: all eight post-training metric differences are below 0.0026 bpc, within the 0.01 tolerance. SSM training is still in progress.
+All four published checkpoints reproduce Marx’s reported sampled validation bpc within 3e-8 when scored on the reference run’s exact batches. The initial sampled-score failures came from different evaluation batches, not faulty checkpoints. The Transformer’s training also reproduces end to end on independent hardware: all eight post-training metric differences are below 0.0026 bpc, within the 0.01 tolerance. SSM training is still in progress.
 
 | Best checkpoint | Full val bpc | Test bpc |
 | --- | --- | --- |
@@ -16,7 +18,7 @@ All four published checkpoints reproduce Ash’s reported sampled validation bpc
 | PhaseMesh SSM | 1.26433 | 1.34613 |
 | SSM minus Transformer | 0.01895 | 0.03095 |
 
-Lower bits per character (bpc) is better. The Transformer leads on both complete splits in this comparison: about 0.019 bpc on validation and 0.031 on test, not a uniform 0.02 gap. Ash’s SSM optimiser time was 3.52 times the Transformer’s. These findings do not establish a general architectural winner.
+Lower bits per character (bpc) is better. The Transformer leads on both complete splits in this comparison: about 0.019 bpc on validation and 0.031 on test, not a uniform 0.02 gap. In Marx’s reproduction, the SSM optimiser time was 3.52 times the Transformer’s. These findings do not establish a general architectural winner.
 
 | Metric (bpc) | Transformer best | PhaseMesh SSM best |
 | --- | --- | --- |
@@ -37,7 +39,7 @@ The check covers the pinned published artefacts, code provenance, CPU/GPU numeri
 | PhaseMesh SSM | 131,688,256 parameters; 12 layers; FFT backend |
 | Data | text8; contiguous 90/5/5 train/validation/test split |
 | Training | Seed 1; context 1024; effective batch 64; 5,000 steps; BF16 |
-| Evaluation | Every 250 steps; 50 validation batches of 64; no autocast in Ash’s evaluate(), so FP32 |
+| Evaluation | Every 250 steps; 50 validation batches of 64; no autocast in the reference run’s evaluate(), so FP32 |
 
 ## Provenance and environment
 
@@ -76,7 +78,7 @@ Full-split scoring covers 4,883 non-overlapping context windows and 4,999,999 ta
 
 ## Why the gate failed - and exact replay
 
-Our baseline scorer resets the CPU RNG to seed 1 on every call: it therefore draws Ash’s step-0 validation sample. Ash instead continues a shared CPU RNG stream during training. The seed is reset after model construction; each training step draws one batch, and each evaluation draws 50 validation then 10 training batches. Dropout is zero, so it does not consume RNG. At the scheduled evaluation steps, the validation sample follows 1.24 × step earlier batch draws.
+Our baseline scorer resets the CPU RNG to seed 1 on every call: it therefore draws the reference run’s step-0 validation sample. Marx’s reproduction instead continues a shared CPU RNG stream during training. The seed is reset after model construction; each training step draws one batch, and each evaluation draws 50 validation then 10 training batches. Dropout is zero, so it does not consume RNG. At the scheduled evaluation steps, the validation sample follows 1.24 × step earlier batch draws.
 
 Exact offset replay was added. The four offset SHA checks match the CPU references; the two step-5000 checkpoints share the same offset hash. Strict FP32 replay with TF32 off gives:
 
@@ -99,14 +101,14 @@ The matched-precision runs returned identical numbers to strict FP32. The TF32 o
 | Start | 7 November 2026, 23:19:29 GMT |
 | Finish | 8 November 2026, 04:16:19 GMT |
 | Training wall time | 17,807.811 seconds |
-| Optimiser time | 15,543.533 seconds versus Ash’s 8,665.858 seconds |
-| Optimiser-time ratio | 1.79× Ash; about 1.8× slower per step |
+| Optimiser time | 15,543.533 seconds versus Marx’s 8,665.858 seconds |
+| Optimiser-time ratio | 1.79× Marx; about 1.8× slower per step |
 
 The training reproduces numerically despite slower execution on different hardware. This is not a controlled hardware-speed comparison. Wall time includes evaluation and saving; optimiser time excludes evaluation, saving and pauses. The timestamps are the recorded run times; wrapper_timing.json independently confirms duration and exit status, but does not contain absolute timestamps.
 
-Every same-step in-training validation point from 250 through 5000 remains within 0.0023320896 bpc of Ash’s curve. The maximum absolute difference occurs at step 4500 (signed delta -0.0023320896). The chart excludes the untrained step-0 point so the training trajectory remains readable.
+Every same-step in-training validation point from 250 through 5000 remains within 0.0023320896 bpc of Marx’s curve. The maximum absolute difference occurs at step 4500 (signed delta -0.0023320896). The chart excludes the untrained step-0 point so the training trajectory remains readable.
 
-| Step | Retrained Transformer (val bpc) | Ash (val bpc) | Delta (retrained minus Ash) |
+| Step | Retrained Transformer (val bpc) | Marx (val bpc) | Delta (retrained minus Marx) |
 | --- | --- | --- | --- |
 | 250 | 1.9446893812444455 | 1.9426932876098857 | +0.0019960936345598 |
 | 500 | 1.712584031666759 | 1.711670936432297 | +0.000913095234462 |
@@ -129,11 +131,11 @@ Every same-step in-training validation point from 250 through 5000 remains withi
 | 4750 | 1.2472362764169809 | 1.2482063418719436 | -0.0009700654549627 |
 | 5000 | 1.2587719577966443 | 1.257564388922874 | +0.0012075688737703 |
 
-Post-training scoring below is strict FP32 with TF32 off, distinct from in-training history. Ash columns use the independently scored published checkpoints, not a different evaluation sample. Deltas are retrained minus Ash; positive is worse.
+Post-training scoring below is strict FP32 with TF32 off, distinct from in-training history. Marx columns use the independently scored published checkpoints, not a different evaluation sample. Deltas are retrained minus Marx; positive is worse.
 
 ### Transformer best - step 4000
 
-| Metric (bpc) | Retrained | Ash | Delta |
+| Metric (bpc) | Retrained | Marx | Delta |
 | --- | --- | --- | --- |
 | Full validation | 1.24561448 | 1.24537995 | +0.00023453 |
 | Full test | 1.31609167 | 1.31518086 | +0.00091081 |
@@ -142,7 +144,7 @@ Post-training scoring below is strict FP32 with TF32 off, distinct from in-train
 
 ### Transformer final - step 5000
 
-| Metric (bpc) | Retrained | Ash | Delta |
+| Metric (bpc) | Retrained | Marx | Delta |
 | --- | --- | --- | --- |
 | Full validation | 1.25383224 | 1.25324812 | +0.00058412 |
 | Full test | 1.32611238 | 1.32360605 | +0.00250633 |
@@ -151,7 +153,7 @@ Post-training scoring below is strict FP32 with TF32 off, distinct from in-train
 
 All eight absolute differences are ≤0.00250634 bpc, comfortably inside 0.01. Both evaluations exit 0; strict finite weights-only loading and CPU/GPU parity pass. Full validation and test each cover 4,999,999 tokens. Training used BF16 with TF32 settings left unmodified and recorded as enabled; post-training scoring explicitly disabled TF32.
 
-The trainer’s latest.pt was not directly scoreable. A new model-only export script at PR commit f8ef3c6 converted the final checkpoint without altering the original training checkpoints or Ash’s data. All 45 tests pass (35 gate, 6 replay, 4 export); export loads with weights_only=True, without fallback. Training/scorer source remains 6a70a5b and scorer dependencies are unchanged.
+The trainer’s latest.pt was not directly scoreable. A new model-only export script at PR commit f8ef3c6 converted the final checkpoint without altering the original training checkpoints or Marx’s published data. All 45 tests pass (35 gate, 6 replay, 4 export); export loads with weights_only=True, without fallback. Training/scorer source remains 6a70a5b and scorer dependencies are unchanged.
 
 ### SSM - in progress, results to follow
 
@@ -159,11 +161,11 @@ The trainer’s latest.pt was not directly scoreable. A new model-only export sc
 | --- | --- |
 | Start / hardware | 7 November 2026, 23:42:15 GMT / NVIDIA DGX Spark (GB10), separate from the Transformer system |
 | Progress | Step 1892/5000 |
-| Step time | Steady ~18.57 seconds versus Ash’s 6.10; about 3x slower |
+| Step time | Steady ~18.57 seconds versus Marx’s 6.10; about 3x slower |
 | Estimated finish | Monday 9 November 2026, about 03:10 GMT |
 | Checkpoint | Resumable |
 
-| Step | Retrained SSM val bpc | Ash val bpc | Delta (bpc, reported) |
+| Step | Retrained SSM val bpc | Marx val bpc | Delta (bpc, reported) |
 | --- | --- | --- | --- |
 | 250 | 1.83445 | 1.83581 | -0.0014 |
 | 500 | 1.66197 | 1.66014 | +0.0018 |
@@ -177,7 +179,7 @@ These SSM timings and interim deltas are progress observations, not independentl
 
 Reported GPU power is about 38 W for the SSM versus 56 W for the Transformer, at about 96% utilisation. This suggests a possible memory or FFT bottleneck on this hardware, but power and utilisation alone do not prove the cause. Treat it as an unprofiled observation requiring profiling, not an architectural efficiency conclusion.
 
-The provisional SSM:Transformer optimiser-time ratio on GB10 is roughly 6x, based on SSM 18.57 s/step versus Transformer 3.11 s/step, compared with Ash’s 3.52x. This is not a controlled hardware-speed comparison.
+The provisional SSM:Transformer optimiser-time ratio on GB10 is roughly 6x, based on SSM 18.57 s/step versus Transformer 3.11 s/step, compared with 3.52x in Marx’s reproduction. This is not a controlled hardware-speed comparison.
 
 ## Process and changes
 
