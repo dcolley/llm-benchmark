@@ -65,7 +65,9 @@ text8-repro/
   scripts/export_artifacts.py
   tests/test_check_score_gate.py
   tests/test_replay_eval_batches.py
+  tests/test_export_model_checkpoint.py
   scripts/replay_eval_batches.py
+  scripts/export_model_checkpoint.py
   apt-packages.txt
   artifacts/                 # reviewed copies only; see artifacts/README.md
 ```
@@ -304,6 +306,14 @@ hardware results.
   17` so a re-run can match the published spec.
 - The SSM snapshot README mentions `MODEL_MANIFEST.json`; the published
   package instead has the top-level `MANIFEST.json`.
+- Training `latest.pt` (`run_matched.py:75-78`, `run_ssm.py:82-85`) stores
+  weights under `model` plus optimizer, RNG, and a `spec` dict (the live
+  config is saved with `asdict` as `spec['model']`). `score.py:132-140`
+  loads with `weights_only=True` and requires `model_state` plus a model-only
+  `cfg`, which is the shape of `best.pt` (`run_matched.py:110`,
+  `run_ssm.py:117`). Convert a finished `latest.pt` with
+  `scripts/export_model_checkpoint.py` before scoring it; do not overwrite
+  published `best.pt` / `final.pt`.
 
 
 ## Replaying Ash's in-training sampled val batches
@@ -373,6 +383,47 @@ the offsets JSON on the same PyTorch that trained, and compare
 If `--config`/`--progress` show a non-contiguous history, `complete: false`,
 or a missing requested step, the replayer refuses unless `--force-assume-clean`
 is passed.
+
+
+## Exporting a training latest.pt for scoring
+
+The seed-1 retrain writes `latest.pt` in the runner resume format. That file
+cannot be passed to `score.py` directly. This conversion drops optimizer and
+RNG state and writes a model-only checkpoint with the same keys as `best.pt`
+(`model_state`, `cfg`, `model_type`, `step`, `val_bpc`) plus export metadata
+(`source_basename`, `source_sha256`, `torch_version`). The destination must
+not already exist; the write is atomic (`dest.tmp` then `os.replace`).
+
+The published latest.pt payload is dicts, lists, numbers, strings, and
+tensors only, so the exporter loads it with `torch.load(..., weights_only=True)`
+and does not register any `safe_globals`. If a file cannot be loaded that
+way, pass `--expect-sha256` matching the file to enable a restricted
+`weights_only=False` fallback; a digest mismatch is refused.
+
+```
+python scripts/export_model_checkpoint.py \
+    --src "$RUNS_DIR/transformer/latest.pt" \
+    --dest "$HF_DIR/transformer/final_from_latest.pt" \
+    --model transformer
+
+python scripts/export_model_checkpoint.py \
+    --src "$RUNS_DIR/ssm/latest.pt" \
+    --dest "$HF_DIR/ssm/final_from_latest.pt" \
+    --model ssm
+```
+
+`--model` selects the `model_type` written into the file (`transformer` or
+`phasessm`). It can be omitted when `spec['model']` already has
+transformer-only keys (`n_heads` / `pos_enc`) or SSM-only keys (`state_dim`
+/ `ssm_backend`). Optional `--expect-sha256` is verified against `--src`
+whenever it is supplied.
+
+Those destinations sit next to the published checkpoints inside the Hugging
+Face snapshot so `score.py --only transformer/final_from_latest.pt` (or
+`ssm/final_from_latest.pt`) can reuse the matching vendor tree. They do not
+replace `best.pt` or `final.pt`. `val_bpc` is copied from the history row
+whose `step` matches the checkpoint step, or set to null if that row is
+missing.
 
 ## Dependencies
 
