@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert a training latest.pt into the model-only format score.py accepts.
 
-Ash's published runners (HF MarxistLeninist/phasemesh-text8-comparison @
+The published runners in Marx's reproduction (HF MarxistLeninist/phasemesh-text8-comparison @
 2eb1bef / ashhart/PhaseMesh @ 3ae43ff) write two checkpoint shapes:
 
 * latest.pt (run_matched.py:75-78, run_ssm.py:82-85):

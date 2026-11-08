@@ -316,13 +316,13 @@ hardware results.
   published `best.pt` / `final.pt`.
 
 
-## Replaying Ash's in-training sampled val batches
+## Replaying Marx's in-training sampled val batches
 
 The default `sampled_val_bpc` path reseeds with `--seed` (default 1) and then
-draws 50 batches of 64. That is the same CPU `torch.randint` stream as Ash's
+draws 50 batches of 64. That is the same CPU `torch.randint` stream as the reference run's
 **step-0** eval, not the later evals that produced the published claims.
 
-Ash's published runners (`run_matched.py` / `run_ssm.py`) share one draw
+The published runners in Marx's reproduction (`run_matched.py` / `run_ssm.py`) share one draw
 order on the default CPU generator after a second `torch.manual_seed(seed)`
 following model construction. Each training step draws **one**
 `get_batch('train', effective_batch=64, seq, 'cpu')` and then slices it by
@@ -369,11 +369,11 @@ python score.py --ckpt-dir "$HF_DIR" --data "$TEXT8_PATH" --out-dir "$RESULTS_DI
 and does not change `sampled_val_bpc`, full-split numbers, TF32 fail-closed
 scoring, or `check_score_gate.py`.
 
-Precision: `score.py` evaluates in FP32 with TF32 disabled. Ash's
+Precision: `score.py` evaluates in FP32 with TF32 disabled. The reference
 `evaluate()` (`run_matched.py:85-95`, `run_ssm.py:92-102`) also calls the
 model without BF16 autocast (autocast is used only on training steps,
 `run_matched.py:118-119`). A remaining difference is TF32, which NGC images
-may leave enabled during his eval. Replayed bpc may therefore differ slightly
+may leave enabled during that eval. Replayed bpc may therefore differ slightly
 from `progress.json` history `val_bpc`; agreement around `1e-4` is expected
 only under matched precision. `--match-training-precision` enables TF32 for
 the replay result only (labelled, never used by the gate). Prefer regenerating
