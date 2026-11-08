@@ -4,7 +4,7 @@
 
 All four published checkpoints reproduce the reported sampled validation scores on the exact evaluation batches. Independent seed-1 Transformer training reproduces within 0.01 bpc on all eight post-training metrics. SSM retraining is in progress, with status below as of 8 November 2026, 10:09 GMT. These findings support this specific reproduction, not a general architectural ranking.
 
-The reference run checked here, the published checkpoints at MarxistLeninist/phasemesh-text8-comparison revision 2eb1bef, is Marx's reproduction of Ash's PhaseSSM/PhaseMesh work; the upstream code is Ash's [ashhart/PhaseMesh](https://github.com/ashhart/PhaseMesh) at commit 3ae43ff.
+The reference run checked here, the published checkpoints at [MarxistLeninist/phasemesh-text8-comparison](https://huggingface.co/MarxistLeninist/phasemesh-text8-comparison) revision 2eb1bef, is Marx's reproduction of Ash's PhaseSSM/PhaseMesh work; the upstream code is Ash's [ashhart/PhaseMesh](https://github.com/ashhart/PhaseMesh) at commit 3ae43ff.
 
 ## Conclusions so far
 
