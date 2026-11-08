@@ -1,0 +1,31 @@
+# Keep the image free of host secrets, data, and weights.
+# Build context is this directory (text8-repro/), not the repo root.
+.env
+.env.*
+**/.env
+**/.env.*
+.git
+**/.git
+**/.gitignore
+**/.ssh
+**/*secret*
+**/*credential*
+**/*.pem
+**/*.key
+**/*.p12
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.onnx
+*.ckpt
+*.zip
+data/
+cache/
+caches/
+runs/
+results/
+artifacts/
+__pycache__/
+**/.pytest_cache/
+**/__pycache__/

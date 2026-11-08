@@ -31,3 +31,22 @@ lm-eval/results/**/watchdog.log
 lm-eval/results/**/serve.log
 lm-eval/results/**/agent_loop.log
 lm-eval/results/**/*.state
+
+# text8-repro local data and outputs
+text8-repro/.env
+text8-repro/data/
+text8-repro/checkpoints/
+text8-repro/runs/
+text8-repro/cache/
+text8-repro/results/*.json
+text8-repro/results/*.txt
+text8-repro/results/provenance.md
+text8-repro/**/*.pt
+text8-repro/**/text8
+text8-repro/**/text8.zip
+text8-repro/**/__pycache__/
+text8-repro/**/*.pyc
+
+!text8-repro/.dockerignore
+!.dockerignore
+!**/.dockerignore
